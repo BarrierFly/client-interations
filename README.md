@@ -2,6 +2,14 @@
 
 **English** | [中文](#中文说明)
 
+> **Reading guide**
+> This English section is 987 words (5 171 characters without spaces) and takes about 4 minutes.
+> The Chinese section is 2 963 characters and takes about 7 minutes, so both together are about
+> 11 minutes. The full [`LICENSE`](LICENSE) is 1 212 characters (197 words, 24 lines).
+>
+> To use the mod, read **Usage** and **Modes**. The rest covers the vanilla limits, building and
+> troubleshooting.
+
 A client-side Fabric mod that automates Minecraft's two mouse actions, **attack** (left) and
 **use** (right), with five modes and a config screen reachable from Mod Menu.
 
@@ -146,6 +154,13 @@ issue if something is missing.
 # 中文说明
 
 **[English](#client-interactions)** | **中文**
+
+> **阅读指引**
+> 中文部分 2 963 字（不计空白），大约需要 7 分钟；英文部分 987 词（不计空格 5 171 字符），
+> 大约需要 4 分钟，两部分合计约 11 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符
+> （197 词、24 行）。
+>
+> 只想用模组的话，读 **使用** 和 **模式** 就够了；其余部分涵盖原版限制、构建与疑难排查。
 
 一个客户端 Fabric 模组，用五种模式自动执行 Minecraft 的两种鼠标操作：**攻击**（左键）与
 **使用**（右键），配置界面可从 Mod Menu 进入。
