@@ -1,12 +1,13 @@
 package peoplecanfly.clientinteractions.common;
 
 /**
- * The two vanilla mouse actions that this mod can drive.
+ * The two vanilla buttons the mod can drive.
+ *
+ * <p>Features are grouped by channel: only one feature per channel can be active at a time, because
+ * they all act on the same mouse button and running two of them would fight over it.</p>
  */
 public enum ActionChannel {
-    /** The left mouse button: {@code key.attack}. */
     ATTACK("attack", "key.attack"),
-    /** The right mouse button: {@code key.use}. */
     USE("use", "key.use");
 
     private final String id;
@@ -21,10 +22,7 @@ public enum ActionChannel {
         return this.id;
     }
 
-    /**
-     * The {@link net.minecraft.client.KeyMapping} name of the vanilla key that this channel drives.
-     * This is a stable Minecraft string, so it is safe to resolve the mapping by name at runtime.
-     */
+    /** The vanilla {@code KeyMapping} name of the button this channel drives. */
     public String vanillaKeyName() {
         return this.vanillaKeyName;
     }

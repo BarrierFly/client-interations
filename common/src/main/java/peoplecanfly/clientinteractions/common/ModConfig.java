@@ -4,41 +4,29 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * The persisted user configuration.
+ * Persisted configuration: one settings block per feature, plus three global switches.
  *
- * <p>Pure data with validation only, so that it can be unit tested. The version specific module is
- * responsible for reading and writing it as JSON.</p>
+ * <p>Features default to off and unbound, and the feature's on/off state is runtime only - it is not
+ * saved, so nothing starts clicking when the game launches.</p>
  */
 public final class ModConfig {
-    public static final String KEY_CATEGORY = "key.categories.clientinteractions";
-
-    private final Map<ActionChannel, AutomationMode> modes = new EnumMap<>(ActionChannel.class);
-    private final Map<ActionChannel, ChannelSettings> settings = new EnumMap<>(ActionChannel.class);
+    private final Map<Feature, FeatureSettings> settings = new EnumMap<>(Feature.class);
     private boolean enabled = true;
     private boolean hudEnabled = true;
     private boolean showMessages = true;
 
     public ModConfig() {
-        for (ActionChannel channel : ActionChannel.values()) {
-            this.modes.put(channel, AutomationMode.HOLD);
-            this.settings.put(channel, ChannelSettings.defaults());
+        for (Feature feature : Feature.values()) {
+            this.settings.put(feature, FeatureSettings.defaults());
         }
     }
 
-    public AutomationMode mode(ActionChannel channel) {
-        return this.modes.get(channel);
+    public FeatureSettings settings(Feature feature) {
+        return this.settings.get(feature);
     }
 
-    public void setMode(ActionChannel channel, AutomationMode mode) {
-        this.modes.put(channel, mode == null ? AutomationMode.HOLD : mode);
-    }
-
-    public ChannelSettings settings(ActionChannel channel) {
-        return this.settings.get(channel);
-    }
-
-    public void setSettings(ActionChannel channel, ChannelSettings value) {
-        this.settings.put(channel, value == null ? ChannelSettings.defaults() : value);
+    public void setSettings(Feature feature, FeatureSettings value) {
+        this.settings.put(feature, value == null ? FeatureSettings.defaults() : value);
     }
 
     public boolean isEnabled() {

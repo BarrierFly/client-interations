@@ -1,6 +1,14 @@
 {
   "key.categories.clientinteractions": "Client Interactions",
-  "key.clientinteractions.toggle_attack": "Toggle attack automation",
-  "key.clientinteractions.toggle_use": "Toggle use automation",
-  "key.clientinteractions.open_config": "Open Client Interactions config"
+  "key.clientinteractions.attack_fast_click": "Attack: Fast click",
+  "key.clientinteractions.attack_hold": "Attack: Hold",
+  "key.clientinteractions.attack_periodic_burst": "Attack: Periodic burst",
+  "key.clientinteractions.attack_periodic_click": "Attack: Periodic click",
+  "key.clientinteractions.attack_periodic_hold": "Attack: Periodic hold",
+  "key.clientinteractions.open_config": "Open Client Interactions config",
+  "key.clientinteractions.use_fast_click": "Use: Fast click",
+  "key.clientinteractions.use_hold": "Use: Hold",
+  "key.clientinteractions.use_periodic_burst": "Use: Periodic burst",
+  "key.clientinteractions.use_periodic_click": "Use: Periodic click",
+  "key.clientinteractions.use_periodic_hold": "Use: Periodic hold"
 }

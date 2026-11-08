@@ -2,210 +2,222 @@ package peoplecanfly.clientinteractions.common;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class AutomationEngineTest {
-    /** Records what the engine asks the game to do. */
     private static final class RecordingHost implements AutomationEngine.Host {
         final List<String> events = new ArrayList<>();
-        final List<ActionChannel> released = new ArrayList<>();
 
         @Override
         public void apply(ActionChannel channel, int clicks, boolean hold, boolean release) {
-            StringBuilder builder = new StringBuilder(channel.id());
-
+            StringBuilder b = new StringBuilder(channel.id());
             if (release) {
-                builder.append(":release");
+                b.append(":release");
             }
-
             if (clicks > 0) {
-                builder.append(":click").append(clicks);
+                b.append(":click").append(clicks);
             }
-
             if (hold) {
-                builder.append(":hold");
+                b.append(":hold");
             }
-
-            this.events.add(builder.toString());
+            this.events.add(b.toString());
         }
 
         @Override
         public void release(ActionChannel channel) {
-            this.released.add(channel);
             this.events.add(channel.id() + ":stop");
         }
 
-        List<String> forChannel(ActionChannel channel) {
-            return this.events.stream()
-                    .filter(event -> event.startsWith(channel.id()))
-                    .collect(Collectors.toList());
+        long count(String needle) {
+            return this.events.stream().filter(e -> e.contains(needle)).count();
         }
     }
 
-    private static ChannelSettings settings(int interval, int holdDuration, int perTick, int burst) {
-        return new ChannelSettings(interval, holdDuration, perTick, burst);
-    }
-
-    private static AutomationEngine engineWith(RecordingHost host, ActionChannel channel,
-                                               AutomationMode mode, ChannelSettings settings) {
+    private static AutomationEngine engine(RecordingHost host) {
         AutomationEngine engine = new AutomationEngine(host);
-        engine.setConfig(channel, new AutomationEngine.ChannelConfig(mode, settings));
+        for (Feature feature : Feature.values()) {
+            engine.setSettings(feature, new FeatureSettings(20, 10, 1, 3));
+        }
         return engine;
     }
 
     @Test
-    @DisplayName("toggling a channel flips its state")
-    void toggleFlipsState() {
-        AutomationEngine engine = new AutomationEngine(new RecordingHost());
+    @DisplayName("every feature starts off")
+    void everythingStartsOff() {
+        AutomationEngine engine = engine(new RecordingHost());
 
-        assertFalse(engine.isActive(ActionChannel.ATTACK));
-        assertTrue(engine.toggle(ActionChannel.ATTACK));
-        assertTrue(engine.isActive(ActionChannel.ATTACK));
-        assertFalse(engine.toggle(ActionChannel.ATTACK));
-        assertFalse(engine.isActive(ActionChannel.ATTACK));
+        for (Feature feature : Feature.values()) {
+            assertFalse(engine.isActive(feature), feature.id() + " should start off");
+        }
     }
 
     @Test
-    @DisplayName("stopping a channel releases the key exactly once")
-    void stopReleasesOnce() {
-        RecordingHost host = new RecordingHost();
-        AutomationEngine engine = new AutomationEngine(host);
-        engine.toggle(ActionChannel.ATTACK);
-        engine.stop(ActionChannel.ATTACK);
-        engine.stop(ActionChannel.ATTACK);
+    @DisplayName("toggling a feature flips it")
+    void toggleFlips() {
+        AutomationEngine engine = engine(new RecordingHost());
 
-        assertEquals(1, host.released.size());
+        assertTrue(engine.toggle(Feature.ATTACK_HOLD));
+        assertTrue(engine.isActive(Feature.ATTACK_HOLD));
+        assertFalse(engine.toggle(Feature.ATTACK_HOLD));
+        assertFalse(engine.isActive(Feature.ATTACK_HOLD));
     }
 
     @Test
-    @DisplayName("each tick advances only active channels")
-    void onlyActiveChannelsTick() {
+    @DisplayName("activating a feature switches off the other features of the same channel")
+    void featuresOfOneChannelAreMutuallyExclusive() {
+        AutomationEngine engine = engine(new RecordingHost());
+
+        for (Feature feature : Feature.forChannel(ActionChannel.ATTACK)) {
+            engine.activate(feature);
+
+            for (Feature other : Feature.forChannel(ActionChannel.ATTACK)) {
+                assertEquals(other == feature, engine.isActive(other),
+                        other.id() + " while " + feature.id() + " is active");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("the two channels do not affect each other")
+    void channelsAreIndependent() {
+        AutomationEngine engine = engine(new RecordingHost());
+
+        engine.activate(Feature.ATTACK_HOLD);
+        engine.activate(Feature.USE_PERIODIC_CLICK);
+
+        assertTrue(engine.isActive(Feature.ATTACK_HOLD));
+        assertTrue(engine.isActive(Feature.USE_PERIODIC_CLICK));
+        assertEquals(Feature.ATTACK_HOLD, engine.activeFeature(ActionChannel.ATTACK));
+        assertEquals(Feature.USE_PERIODIC_CLICK, engine.activeFeature(ActionChannel.USE));
+    }
+
+    @Test
+    @DisplayName("switching a feature off within a channel leaves the channel idle")
+    void stoppingLeavesChannelIdle() {
+        AutomationEngine engine = engine(new RecordingHost());
+        engine.activate(Feature.ATTACK_HOLD);
+        engine.stop(Feature.ATTACK_HOLD);
+
+        assertNull(engine.activeFeature(ActionChannel.ATTACK));
+    }
+
+    @Test
+    @DisplayName("activating the already active feature keeps it active")
+    void reactivatingSameFeature() {
+        AutomationEngine engine = engine(new RecordingHost());
+        engine.activate(Feature.ATTACK_HOLD);
+        engine.activate(Feature.ATTACK_HOLD);
+
+        assertTrue(engine.isActive(Feature.ATTACK_HOLD));
+    }
+
+    @Test
+    @DisplayName("a release is sent when switching features of one channel")
+    void switchingReleasesTheOldButton() {
         RecordingHost host = new RecordingHost();
-        AutomationEngine engine = engineWith(host, ActionChannel.ATTACK, AutomationMode.FAST_CLICK,
-                settings(20, 10, 1, 1));
-        engine.toggle(ActionChannel.ATTACK);
+        AutomationEngine engine = engine(host);
+        engine.activate(Feature.ATTACK_HOLD);
+        engine.tick();
+        host.events.clear();
+
+        engine.activate(Feature.ATTACK_FAST_CLICK);
+
+        assertEquals(1, host.count("attack:stop"), "the hold must be released before the new feature runs");
+    }
+
+    @Test
+    @DisplayName("only active features tick, and each tick advances by exactly one")
+    void tickingOnlyAdvancesActiveFeatures() {
+        RecordingHost host = new RecordingHost();
+        AutomationEngine engine = engine(host);
+        engine.activate(Feature.ATTACK_FAST_CLICK);
         host.events.clear();
 
         engine.tick();
         engine.tick();
-
-        assertEquals(2, host.events.size());
-        assertEquals(List.of("attack:click1", "attack:click1"), host.forChannel(ActionChannel.ATTACK));
-        assertEquals(List.of(), host.forChannel(ActionChannel.USE));
-    }
-
-    @Test
-    @DisplayName("both channels can run at the same time")
-    void bothChannelsRun() {
-        RecordingHost host = new RecordingHost();
-        AutomationEngine engine = new AutomationEngine(host);
-        engine.setConfig(ActionChannel.ATTACK, new AutomationEngine.ChannelConfig(
-                AutomationMode.HOLD, settings(20, 10, 1, 1)));
-        engine.setConfig(ActionChannel.USE, new AutomationEngine.ChannelConfig(
-                AutomationMode.FAST_CLICK, settings(20, 10, 2, 1)));
-        engine.toggle(ActionChannel.ATTACK);
-        engine.toggle(ActionChannel.USE);
-        host.events.clear();
-
         engine.tick();
 
-        assertEquals(List.of("attack:hold"), host.forChannel(ActionChannel.ATTACK));
-        assertEquals(List.of("use:click2"), host.forChannel(ActionChannel.USE));
+        assertEquals(3, host.count("attack:click1"));
+        assertEquals(3, engine.scheduler(Feature.ATTACK_FAST_CLICK).elapsedTicks());
+        assertEquals(0, engine.scheduler(Feature.ATTACK_HOLD).elapsedTicks());
     }
 
     @Test
-    @DisplayName("the master switch suppresses input but keeps the phase running")
-    void disabledKeepsPhase() {
+    @DisplayName("the master switch suppresses input but keeps the phase")
+    void masterSwitchKeepsPhase() {
         RecordingHost host = new RecordingHost();
-        AutomationEngine engine = engineWith(host, ActionChannel.ATTACK, AutomationMode.PERIODIC_CLICK,
-                settings(4, 1, 1, 1));
-        engine.toggle(ActionChannel.ATTACK);
+        AutomationEngine engine = engine(host);
+        engine.setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(4, 1, 1, 1));
+        engine.activate(Feature.ATTACK_PERIODIC_CLICK);
         engine.setEnabled(false);
         host.events.clear();
 
         engine.tick();
         engine.tick();
 
-        assertFalse(host.events.stream().anyMatch(event -> event.contains("click")));
-        assertEquals(2, engine.scheduler(ActionChannel.ATTACK).elapsedTicks());
+        assertEquals(0, host.count("click"));
+        assertEquals(2, engine.scheduler(Feature.ATTACK_PERIODIC_CLICK).elapsedTicks());
 
         engine.setEnabled(true);
         engine.tick();
         engine.tick();
+        // interval is 4, so with the phase having advanced 2 ticks while disabled the next click lands
+        // on the 4th tick overall, which is one more tick away.
+        assertEquals(0, host.count("click"), "no click yet on ticks 3 and 4 of the phase");
+
         engine.tick();
-        // the phase kept running while disabled, so the interval boundary lands on the 4th tick overall
-        assertEquals(1, host.forChannel(ActionChannel.ATTACK).stream()
-                .filter(event -> event.contains("click"))
-                .count());
+        assertEquals(1, host.count("click"), "the phase kept running while disabled");
     }
 
     @Test
-    @DisplayName("a stale hold is released when automation is switched off")
-    void disablingReleases() {
-        RecordingHost host = new RecordingHost();
-        AutomationEngine engine = engineWith(host, ActionChannel.ATTACK, AutomationMode.HOLD,
-                settings(20, 10, 1, 1));
-        engine.toggle(ActionChannel.ATTACK);
-        engine.tick();
-        host.events.clear();
+    @DisplayName("stopAll and stopChannel stop what they should")
+    void stoppingGroups() {
+        AutomationEngine engine = engine(new RecordingHost());
+        engine.activate(Feature.ATTACK_HOLD);
+        engine.activate(Feature.USE_HOLD);
 
-        engine.setEnabled(false);
-
-        assertEquals(List.of("attack:stop"), host.forChannel(ActionChannel.ATTACK));
-    }
-
-    @Test
-    @DisplayName("stopAll stops every channel")
-    void stopAllStopsEverything() {
-        RecordingHost host = new RecordingHost();
-        AutomationEngine engine = new AutomationEngine(host);
-        engine.toggle(ActionChannel.ATTACK);
-        engine.toggle(ActionChannel.USE);
+        engine.stopChannel(ActionChannel.ATTACK);
+        assertFalse(engine.isActive(Feature.ATTACK_HOLD));
+        assertTrue(engine.isActive(Feature.USE_HOLD));
 
         engine.stopAll();
-
-        assertFalse(engine.isActive(ActionChannel.ATTACK));
-        assertFalse(engine.isActive(ActionChannel.USE));
-        assertEquals(2, host.released.size());
+        assertFalse(engine.isActive(Feature.USE_HOLD));
     }
 
     @Test
-    @DisplayName("changed settings are used on the very next tick")
+    @DisplayName("settings are used live")
     void settingsAreLive() {
         RecordingHost host = new RecordingHost();
-        AutomationEngine engine = engineWith(host, ActionChannel.ATTACK, AutomationMode.PERIODIC_CLICK,
-                settings(10, 1, 1, 1));
-        engine.toggle(ActionChannel.ATTACK);
+        AutomationEngine engine = engine(host);
+        engine.setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(10, 1, 1, 1));
+        engine.activate(Feature.ATTACK_PERIODIC_CLICK);
         host.events.clear();
 
         engine.tick();
-        engine.setConfig(ActionChannel.ATTACK, new AutomationEngine.ChannelConfig(
-                AutomationMode.PERIODIC_CLICK, settings(1, 1, 1, 1)));
+        engine.setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(1, 1, 2, 1));
         engine.tick();
 
-        assertEquals(List.of("attack:click1", "attack:click1"), host.forChannel(ActionChannel.ATTACK));
+        assertEquals(2, host.count("click"), "first tick clicked once, second tick clicked twice");
     }
 
     @Test
-    @DisplayName("mode changes take effect immediately")
-    void modeChangesAreLive() {
-        RecordingHost host = new RecordingHost();
-        AutomationEngine engine = engineWith(host, ActionChannel.ATTACK, AutomationMode.HOLD,
-                settings(10, 1, 1, 1));
-        engine.toggle(ActionChannel.ATTACK);
-        host.events.clear();
+    @DisplayName("all ten features exist and are named uniquely")
+    void tenFeatures() {
+        assertEquals(10, Feature.values().length);
 
-        engine.tick();
-        engine.setConfig(ActionChannel.ATTACK, new AutomationEngine.ChannelConfig(
-                AutomationMode.FAST_CLICK, settings(10, 1, 3, 1)));
-        engine.tick();
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (Feature feature : Feature.values()) {
+            assertTrue(ids.add(feature.id()), "duplicate id " + feature.id());
+            assertTrue(feature.keyBindingName().startsWith("key.clientinteractions."));
+        }
 
-        assertEquals(List.of("attack:hold", "attack:release:click3"), host.forChannel(ActionChannel.ATTACK));
+        assertEquals(5, Feature.forChannel(ActionChannel.ATTACK).length);
+        assertEquals(5, Feature.forChannel(ActionChannel.USE).length);
     }
 }

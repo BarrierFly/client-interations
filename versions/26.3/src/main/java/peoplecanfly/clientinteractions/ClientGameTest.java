@@ -10,19 +10,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import peoplecanfly.clientinteractions.common.ActionChannel;
-import peoplecanfly.clientinteractions.common.AutomationMode;
-import peoplecanfly.clientinteractions.common.ChannelSettings;
+import peoplecanfly.clientinteractions.common.Feature;
+import peoplecanfly.clientinteractions.common.FeatureSettings;
 
 /**
  * In-game end to end check, run with {@code ./gradlew :versions:<mc>:runClientGameTest}.
  *
- * <p>This covers what the unit tests cannot: proving that the vanilla attack and use code paths really
- * run when the mod calls them, that holds really flip the vanilla key state, that the timers advance
- * exactly one step per client tick in a live world, and that a screen stops attack input the way vanilla
- * does.</p>
- *
- * <p>All game state is read through {@link ClientGameTestContext#computeOnClient} because the test body
- * runs on its own thread.</p>
+ * <p>Covers what the unit tests cannot: that the vanilla code paths really run, that holds really flip
+ * the vanilla key state, that timers advance one step per client tick in a live world, that features of
+ * one button exclude each other, and that the screens render.</p>
  */
 public final class ClientGameTest implements FabricClientGameTest {
     private static final Logger LOGGER = LoggerFactory.getLogger("ClientInteractions-GameTest");
@@ -35,11 +31,13 @@ public final class ClientGameTest implements FabricClientGameTest {
             context.waitTicks(20);
 
             require(compute(context, () -> ClientInteractionsClient.get() != null), "mod initialised");
+            require(compute(context, () -> allFeaturesOff()), "every feature starts off");
 
-            testHold(context);
+            testHold(context, Feature.ATTACK_HOLD);
             testFastClick(context);
             testPeriodicHold(context);
             testPeriodicBurst(context);
+            testMutualExclusion(context);
             testMasterSwitch(context);
             testAttackBlockedByScreen(context);
             testConfigScreenRenders(context);
@@ -48,35 +46,47 @@ public final class ClientGameTest implements FabricClientGameTest {
         }
     }
 
-    private void testHold(ClientGameTestContext context) {
-        configure(context, ActionChannel.ATTACK, AutomationMode.HOLD, new ChannelSettings(20, 10, 1, 3));
-        toggle(context, ActionChannel.ATTACK);
+    private static boolean allFeaturesOff() {
+        ClientInteractionsClient mod = ClientInteractionsClient.get();
+
+        for (Feature feature : Feature.values()) {
+            if (mod.engine().isActive(feature)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void testHold(ClientGameTestContext context, Feature feature) {
+        configure(context, feature, new FeatureSettings(20, 10, 1, 3));
+        toggle(context, feature);
         context.waitTicks(3);
 
-        require(compute(context, () -> mod().engine().isActive(ActionChannel.ATTACK)), "hold: channel active");
-        require(compute(context, () -> client().options.keyAttack.isDown()), "hold: vanilla attack key is down");
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_HOLD)), "hold: active");
+        require(compute(context, () -> client().options.keyAttack.isDown()), "hold: vanilla key down");
 
-        stop(context, ActionChannel.ATTACK);
+        stop(context, feature);
         context.waitTicks(2);
-        require(compute(context, () -> !client().options.keyAttack.isDown()), "hold: vanilla attack key released");
+        require(compute(context, () -> !client().options.keyAttack.isDown()), "hold: vanilla key released");
     }
 
     private void testFastClick(ClientGameTestContext context) {
-        configure(context, ActionChannel.ATTACK, AutomationMode.FAST_CLICK, new ChannelSettings(20, 10, 4, 3));
-        toggle(context, ActionChannel.ATTACK);
+        configure(context, Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 4, 3));
+        toggle(context, Feature.ATTACK_FAST_CLICK);
         context.waitTicks(5);
 
-        int elapsed = compute(context, () -> mod().engine().scheduler(ActionChannel.ATTACK).elapsedTicks());
-        require(elapsed == 5, "fast click: exactly one scheduler tick per client tick, got " + elapsed);
+        int elapsed = compute(context, () -> mod().engine().scheduler(Feature.ATTACK_FAST_CLICK).elapsedTicks());
+        require(elapsed == 5, "fast click: one scheduler tick per client tick, got " + elapsed);
         require(compute(context, () -> !client().options.keyAttack.isDown()),
-                "fast click: a click based mode does not leave the key held");
+                "fast click: a click mode leaves the key released");
 
-        stop(context, ActionChannel.ATTACK);
+        stop(context, Feature.ATTACK_FAST_CLICK);
     }
 
     private void testPeriodicHold(ClientGameTestContext context) {
-        configure(context, ActionChannel.USE, AutomationMode.PERIODIC_HOLD, new ChannelSettings(6, 3, 1, 3));
-        toggle(context, ActionChannel.USE);
+        configure(context, Feature.USE_PERIODIC_HOLD, new FeatureSettings(6, 3, 1, 3));
+        toggle(context, Feature.USE_PERIODIC_HOLD);
 
         boolean sawHeld = false;
         boolean sawReleased = false;
@@ -92,111 +102,118 @@ public final class ClientGameTest implements FabricClientGameTest {
             }
         }
 
-        require(sawHeld, "periodic hold: the key was held at least once");
-        require(sawReleased, "periodic hold: the key was released at least once");
+        require(sawHeld, "periodic hold: held at least once");
+        require(sawReleased, "periodic hold: released at least once");
 
-        stop(context, ActionChannel.USE);
+        stop(context, Feature.USE_PERIODIC_HOLD);
         context.waitTicks(2);
         require(compute(context, () -> !client().options.keyUse.isDown()),
-                "periodic hold: the key is released when the channel stops");
+                "periodic hold: released when stopped");
     }
 
     private void testPeriodicBurst(ClientGameTestContext context) {
-        configure(context, ActionChannel.ATTACK, AutomationMode.PERIODIC_BURST, new ChannelSettings(10, 1, 1, 3));
-        toggle(context, ActionChannel.ATTACK);
+        configure(context, Feature.ATTACK_PERIODIC_BURST, new FeatureSettings(10, 1, 1, 3));
+        toggle(context, Feature.ATTACK_PERIODIC_BURST);
         context.waitTicks(9);
 
-        require(compute(context, () -> mod().engine().isActive(ActionChannel.ATTACK)),
-                "periodic burst: the channel stays active across a full cycle");
-        require(compute(context, () -> mod().engine().scheduler(ActionChannel.ATTACK).elapsedTicks() == 9),
-                "periodic burst: the phase advanced by nine ticks");
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_PERIODIC_BURST)),
+                "burst: still active after nine ticks");
+        require(compute(context, () -> mod().engine().scheduler(Feature.ATTACK_PERIODIC_BURST).elapsedTicks() == 9),
+                "burst: phase advanced by nine ticks");
 
-        stop(context, ActionChannel.ATTACK);
+        stop(context, Feature.ATTACK_PERIODIC_BURST);
+    }
+
+    private void testMutualExclusion(ClientGameTestContext context) {
+        configure(context, Feature.ATTACK_HOLD, new FeatureSettings(20, 10, 1, 3));
+        configure(context, Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(5, 1, 1, 3));
+
+        toggle(context, Feature.ATTACK_HOLD);
+        context.waitTicks(2);
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_HOLD)), "exclusion: hold active");
+
+        toggle(context, Feature.ATTACK_PERIODIC_CLICK);
+        context.waitTicks(2);
+
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_PERIODIC_CLICK)),
+                "exclusion: the second feature is active");
+        require(compute(context, () -> !mod().engine().isActive(Feature.ATTACK_HOLD)),
+                "exclusion: hold was switched off automatically");
+        require(compute(context, () -> !client().options.keyAttack.isDown()),
+                "exclusion: the old hold released the button");
+
+        stop(context, Feature.ATTACK_PERIODIC_CLICK);
+        context.waitTicks(2);
     }
 
     private void testMasterSwitch(ClientGameTestContext context) {
-        configure(context, ActionChannel.ATTACK, AutomationMode.HOLD, new ChannelSettings(20, 10, 1, 3));
-        toggle(context, ActionChannel.ATTACK);
+        configure(context, Feature.ATTACK_HOLD, new FeatureSettings(20, 10, 1, 3));
+        toggle(context, Feature.ATTACK_HOLD);
         context.waitTicks(2);
-        require(compute(context, () -> client().options.keyAttack.isDown()),
-                "master switch: the key is down while enabled");
+        require(compute(context, () -> client().options.keyAttack.isDown()), "master: down while enabled");
 
         compute(context, () -> {
             mod().setGameEnabled(false);
             return null;
         });
         context.waitTicks(2);
-        require(compute(context, () -> !client().options.keyAttack.isDown()),
-                "master switch: the key is released when disabled");
+        require(compute(context, () -> !client().options.keyAttack.isDown()), "master: released when disabled");
 
         compute(context, () -> {
             mod().setGameEnabled(true);
             return null;
         });
         context.waitTicks(2);
-        require(compute(context, () -> client().options.keyAttack.isDown()),
-                "master switch: the key is down again when re-enabled");
+        require(compute(context, () -> client().options.keyAttack.isDown()), "master: down again when enabled");
 
-        stop(context, ActionChannel.ATTACK);
+        stop(context, Feature.ATTACK_HOLD);
     }
 
     private void testAttackBlockedByScreen(ClientGameTestContext context) {
-        configure(context, ActionChannel.ATTACK, AutomationMode.FAST_CLICK, new ChannelSettings(20, 10, 1, 3));
-        toggle(context, ActionChannel.ATTACK);
+        configure(context, Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 1, 3));
+        toggle(context, Feature.ATTACK_FAST_CLICK);
         context.waitTicks(2);
 
-        // Opening a screen makes vanilla raise missTime and stop processing input; the mod follows that.
         context.setScreen(() -> new InventoryScreen(Minecraft.getInstance().player));
         context.waitTicks(2);
-        require(compute(context, () -> client().missTime >= 10000), "screen: vanilla marks the screen via missTime");
-        require(compute(context, () -> mod().engine().scheduler(ActionChannel.ATTACK).elapsedTicks() > 0),
-                "screen: timers keep running while the screen is open");
+        require(compute(context, () -> client().missTime >= 10000), "screen: vanilla marks the screen");
+        require(compute(context, () -> mod().engine().scheduler(Feature.ATTACK_FAST_CLICK).elapsedTicks() > 0),
+                "screen: timers keep running");
 
-        stop(context, ActionChannel.ATTACK);
+        stop(context, Feature.ATTACK_FAST_CLICK);
         context.setScreen(() -> null);
         context.waitTicks(2);
     }
 
-    /**
-     * Renders the mod's own config screen for several frames.
-     *
-     * <p>This guards against a regression that shipped once: calling {@code renderBackground} manually
-     * blurred twice in one frame and crashed with "Can only blur once per frame" as soon as the screen
-     * was opened. Rendering the screen inside the test catches that immediately.</p>
-     */
     private void testConfigScreenRenders(ClientGameTestContext context) {
         context.setScreen(() -> new ConfigScreen(null, mod()));
-        // Several frames, because the blur limit is per frame and a single frame may be cached.
         context.waitTicks(3);
         require(compute(context, () -> client().gui.screen() instanceof ConfigScreen),
-                "config screen: it opens and survives rendering");
+                "config screen: opens and survives rendering");
 
         context.setScreen(() -> null);
         context.waitTicks(2);
     }
 
-    private void configure(ClientGameTestContext context, ActionChannel channel,
-                           AutomationMode mode, ChannelSettings settings) {
+    private void configure(ClientGameTestContext context, Feature feature, FeatureSettings settings) {
         compute(context, () -> {
-            mod().config().setMode(channel, mode);
-            mod().config().setSettings(channel, settings);
+            mod().config().setSettings(feature, settings);
             mod().syncEngine();
             return null;
         });
     }
 
-    private void toggle(ClientGameTestContext context, ActionChannel channel) {
-        compute(context, () -> mod().engine().toggle(channel));
+    private void toggle(ClientGameTestContext context, Feature feature) {
+        compute(context, () -> mod().engine().toggle(feature));
     }
 
-    private void stop(ClientGameTestContext context, ActionChannel channel) {
+    private void stop(ClientGameTestContext context, Feature feature) {
         compute(context, () -> {
-            mod().engine().stop(channel);
+            mod().engine().stop(feature);
             return null;
         });
     }
 
-    /** Runs a piece of game code on the client thread, as required by the gametest API. */
     private static <T> T compute(ClientGameTestContext context, java.util.function.Supplier<T> supplier) {
         return context.computeOnClient(minecraft -> supplier.get());
     }

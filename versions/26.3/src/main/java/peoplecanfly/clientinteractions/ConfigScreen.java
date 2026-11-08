@@ -1,28 +1,33 @@
 package peoplecanfly.clientinteractions;
 
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import peoplecanfly.clientinteractions.common.ActionChannel;
-import peoplecanfly.clientinteractions.common.AutomationMode;
-import peoplecanfly.clientinteractions.common.ChannelSettings;
+import peoplecanfly.clientinteractions.common.Feature;
+import peoplecanfly.clientinteractions.common.FeatureSettings;
 import peoplecanfly.clientinteractions.common.StatusText;
 
 /**
- * The in-game configuration screen.
+ * The configuration screen: one row per feature.
  *
- * <p>26.x renamed the render entry point to {@code extractRenderState} and hands out a
- * {@link GuiGraphicsExtractor} instead of a {@code GuiGraphics}, so this screen is the 26.x dialect of the
- * same layout used on the older targets.</p>
+ * <p>Every feature has its own on/off button, its own key binding button and its own value buttons, so
+ * nothing is shared and nothing can overlap. Rows are paged by available height, and each value is a
+ * click-to-cycle button rather than a slider: that keeps every row exactly one line tall and avoids the
+ * zero-height render regions a slider could produce on 26.x.</p>
  */
 public final class ConfigScreen extends Screen {
-    private static final int ROW_HEIGHT = 24;
-    private static final int WIDGET_WIDTH = 150;
+    private static final int ROW = 22;
+    private static final int LEFT_WIDTH = 154;
+    private static final int TOP = 30;
 
     private final Screen parent;
     private final ClientInteractionsClient mod;
+
+    /** Index of the first feature shown on this page. */
+    private int page;
 
     public ConfigScreen(Screen parent, ClientInteractionsClient mod) {
         super(Component.literal(StatusText.MOD_NAME));
@@ -32,127 +37,223 @@ public final class ConfigScreen extends Screen {
 
     @Override
     protected void init() {
+        this.clearWidgets();
+
         int center = this.width / 2;
         int left = center - 160;
-        int right = center + 10;
-        int y = 40;
+        int right = center + 2;
+        int y = TOP;
 
         this.addRenderableWidget(CycleButton.onOffBuilder(this.mod.config().isEnabled())
-                .create(left, y, WIDGET_WIDTH, 20, Component.literal("Automation"),
-                        (button, value) -> {
-                            this.mod.config().setEnabled(value);
+                .create(left, y, LEFT_WIDTH, 20, Component.literal("Automation"),
+                        (b, v) -> {
+                            this.mod.config().setEnabled(v);
                             this.mod.saveConfig();
                         }));
+
+        int pages = this.pageCount();
+        int pageIndex = Math.max(0, Math.min(this.page, pages - 1));
+
+        this.addRenderableWidget(Button.builder(
+                        Component.literal("Page " + (pageIndex + 1) + "/" + pages),
+                        b -> {
+                            this.page = (pageIndex + 1) % pages;
+                            this.rebuildWidgets();
+                        })
+                .bounds(right, y, LEFT_WIDTH, 20)
+                .build());
+        y += ROW;
 
         this.addRenderableWidget(CycleButton.onOffBuilder(this.mod.config().isHudEnabled())
-                .create(right, y, WIDGET_WIDTH, 20, Component.literal("HUD"),
-                        (button, value) -> {
-                            this.mod.config().setHudEnabled(value);
+                .create(left, y, LEFT_WIDTH / 2 - 2, 20, Component.literal("HUD"),
+                        (b, v) -> {
+                            this.mod.config().setHudEnabled(v);
                             this.mod.saveConfig();
                         }));
-
-        y += ROW_HEIGHT;
-
         this.addRenderableWidget(CycleButton.onOffBuilder(this.mod.config().showMessages())
-                .create(left, y, WIDGET_WIDTH, 20, Component.literal("Chat messages"),
-                        (button, value) -> {
-                            this.mod.config().setShowMessages(value);
+                .create(left + LEFT_WIDTH / 2 + 2, y, LEFT_WIDTH / 2 - 2, 20, Component.literal("Messages"),
+                        (b, v) -> {
+                            this.mod.config().setShowMessages(v);
                             this.mod.saveConfig();
                         }));
+        y += ROW + 4;
 
-        y += ROW_HEIGHT + 8;
+        this.page = pageIndex;
 
-        for (ActionChannel channel : ActionChannel.values()) {
-            y = this.addChannelWidgets(channel, left, right, y);
-            y += 8;
+        for (Feature feature : this.pageFeatures()) {
+            y = this.addFeature(feature, left, right, y);
         }
 
-        this.addRenderableWidget(Button.builder(Component.literal("Done"), button -> this.onClose())
-                .bounds(center - 60, this.height - 28, 120, 20)
+        this.addRenderableWidget(Button.builder(Component.literal("Done"), b -> this.onClose())
+                .bounds(center - 60, Math.max(TOP, this.height - 26), 120, 20)
                 .build());
     }
 
-    private int addChannelWidgets(ActionChannel channel, int left, int right, int y) {
-        AutomationMode mode = this.mod.config().mode(channel);
-        ChannelSettings settings = this.mod.config().settings(channel);
+    /** Features per page, leaving room for the header and the Done button. */
+    private int perPage() {
+        int available = this.height - TOP - ROW * 2 - 34;
+        return Math.max(1, available / ROW);
+    }
 
-        this.addRenderableWidget(CycleButton.<AutomationMode>builder(
-                        value -> Component.literal(StatusText.modeLabel(value)), mode)
-                .withValues(AutomationMode.values())
-                .create(left, y, WIDGET_WIDTH, 20,
-                        Component.literal(StatusText.channelLabel(channel) + " mode"),
-                        (button, value) -> {
-                            this.mod.config().setMode(channel, value);
-                            this.mod.saveConfig();
+    private int pageCount() {
+        int perPage = this.perPage();
+        return Math.max(1, (Feature.values().length + perPage - 1) / perPage);
+    }
+
+    private Feature[] pageFeatures() {
+        Feature[] all = Feature.values();
+        int perPage = this.perPage();
+        int index = Math.max(0, Math.min(this.page, this.pageCount() - 1));
+        int from = Math.min(all.length, index * perPage);
+        int to = Math.min(all.length, from + perPage);
+        Feature[] slice = new Feature[Math.max(0, to - from)];
+
+        System.arraycopy(all, from, slice, 0, slice.length);
+
+        return slice;
+    }
+
+    private int addFeature(Feature feature, int left, int right, int y) {
+        boolean active = this.mod.engine().isActive(feature);
+
+        this.addRenderableWidget(Button.builder(
+                        Component.literal((active ? "[ON] " : "[  ] ") + feature.label()),
+                        b -> {
+                            this.mod.toggleFeature(feature);
                             this.rebuildWidgets();
-                        }));
+                        })
+                .bounds(left, y, LEFT_WIDTH, 20)
+                .build());
 
-        if (usesInterval(mode)) {
-            this.addRenderableWidget(new IntSlider(right, y, WIDGET_WIDTH, 20, "Interval", settings.interval(),
-                    ChannelSettings.MIN_INTERVAL, ChannelSettings.MAX_INTERVAL,
-                    value -> this.mod.config().setSettings(channel,
-                            this.mod.config().settings(channel).withInterval(value))));
-            y += ROW_HEIGHT;
+        this.addRenderableWidget(Button.builder(
+                        Component.literal(this.boundKeyName(feature)),
+                        b -> this.openKeyBind(new KeyBindScreen(this, this.mod, feature)))
+                .bounds(right, y, 84, 20)
+                .build());
+
+        int valueX = right + 88;
+
+        for (ValueField field : ValueField.forShape(feature.shape())) {
+            FeatureSettings settings = this.mod.config().settings(feature);
+            FeatureSettings current = settings;
+
+            this.addRenderableWidget(Button.builder(
+                            Component.literal(field.label + ": " + field.get(current)),
+                            b -> {
+                                this.mod.config().setSettings(feature,
+                                        field.advance(this.mod.config().settings(feature)));
+                                this.mod.saveConfig();
+                                this.rebuildWidgets();
+                            })
+                    .bounds(valueX, y, 92, 20)
+                    .build());
+            valueX += 96;
         }
 
-        if (mode == AutomationMode.PERIODIC_HOLD) {
-            int maxHold = this.mod.config().settings(channel).interval();
-            this.addRenderableWidget(new IntSlider(right, y, WIDGET_WIDTH, 20, "Hold", settings.holdDuration(),
-                    ChannelSettings.MIN_SPAN, Math.max(ChannelSettings.MIN_SPAN, maxHold),
-                    value -> this.mod.config().setSettings(channel,
-                            this.mod.config().settings(channel).withHoldDuration(value))));
-            y += ROW_HEIGHT;
-        }
-
-        if (mode == AutomationMode.PERIODIC_BURST) {
-            this.addRenderableWidget(new IntSlider(right, y, WIDGET_WIDTH, 20, "Burst", settings.burstSize(),
-                    ChannelSettings.MIN_BURST, ChannelSettings.MAX_BURST,
-                    value -> this.mod.config().setSettings(channel,
-                            this.mod.config().settings(channel).withBurstSize(value))));
-            y += ROW_HEIGHT;
-        }
-
-        if (usesPerTick(mode)) {
-            this.addRenderableWidget(new IntSlider(right, y, WIDGET_WIDTH, 20, "Per tick", settings.perTick(),
-                    ChannelSettings.MIN_PER_TICK, ChannelSettings.MAX_PER_TICK,
-                    value -> this.mod.config().setSettings(channel,
-                            this.mod.config().settings(channel).withPerTick(value))));
-            y += ROW_HEIGHT;
-        }
-
-        return y;
+        return y + ROW;
     }
 
-    private static boolean usesInterval(AutomationMode mode) {
-        return mode == AutomationMode.PERIODIC_CLICK
-                || mode == AutomationMode.PERIODIC_HOLD
-                || mode == AutomationMode.PERIODIC_BURST;
+    private String boundKeyName(Feature feature) {
+        KeyMapping key = this.mod.keyFor(feature);
+
+        if (key == null || key.isUnbound()) {
+            return "Unbound";
+        }
+
+        return key.getTranslatedKeyMessage().getString();
     }
 
-    private static boolean usesPerTick(AutomationMode mode) {
-        return mode == AutomationMode.FAST_CLICK || mode == AutomationMode.PERIODIC_CLICK;
+    /** Opens a screen through this version's entry point. */
+    private void openKeyBind(Screen screen) {
+        this.minecraft.gui.setScreen(screen);
     }
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
-        graphics.centeredText(this.font, this.title, this.width / 2, 12, 0xFFFFFF);
-
-        int y = 24;
-
-        for (ActionChannel channel : ActionChannel.values()) {
-            graphics.text(this.font,
-                    StatusText.channelLine(channel, this.mod.config().mode(channel),
-                            this.mod.config().settings(channel)),
-                    20, y, 0xA0A0A0);
-            y += 10;
-        }
-
         super.extractRenderState(graphics, mouseX, mouseY, delta);
+        
+        graphics.centeredText(this.font, this.title, this.width / 2, 8, 0xFFFFFF);
+        graphics.text(this.font, "Toggle left, rebind right", 8, 18, 0x909090);
     }
 
     @Override
     public void onClose() {
         this.mod.saveConfig();
         this.minecraft.gui.setScreen(this.parent);
+    }
+
+    /** The number a value button edits, and the steps it cycles through. */
+    private enum ValueField {
+        INTERVAL("Interval", new int[] {1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30, 40, 60, 100, 200}),
+        DURATION("Hold", new int[] {1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30, 40, 60, 100, 200}),
+        PER_TICK("Per tick", new int[] {1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 30, 50, 75, 100}),
+        BURST("Burst", new int[] {1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 30, 40, 60, 100, 200});
+
+        private final String label;
+        private final int[] steps;
+
+        ValueField(String label, int[] steps) {
+            this.label = label;
+            this.steps = steps;
+        }
+
+        static ValueField[] forShape(Feature.Shape shape) {
+            switch (shape) {
+                case FAST_CLICK:
+                    return new ValueField[] {PER_TICK};
+                case PERIODIC_CLICK:
+                    return new ValueField[] {INTERVAL, PER_TICK};
+                case PERIODIC_HOLD:
+                    return new ValueField[] {INTERVAL, DURATION};
+                case PERIODIC_BURST:
+                    return new ValueField[] {INTERVAL, BURST};
+                default:
+                    return new ValueField[0];
+            }
+        }
+
+        int get(FeatureSettings settings) {
+            switch (this) {
+                case INTERVAL:
+                    return settings.interval();
+                case DURATION:
+                    return settings.duration();
+                case PER_TICK:
+                    return settings.perTick();
+                case BURST:
+                    return settings.burst();
+                default:
+                    return 0;
+            }
+        }
+
+        /** The next step above the current value, wrapping back to the first step at the end. */
+        FeatureSettings advance(FeatureSettings settings) {
+            int currentValue = this.get(settings);
+            int last = this.steps[this.steps.length - 1];
+            int next = this.steps[0];
+
+            if (currentValue < last) {
+                for (int step : this.steps) {
+                    if (step > currentValue) {
+                        next = step;
+                        break;
+                    }
+                }
+            }
+
+            switch (this) {
+                case INTERVAL:
+                    return settings.withInterval(next);
+                case DURATION:
+                    return settings.withDuration(next);
+                case PER_TICK:
+                    return settings.withPerTick(next);
+                case BURST:
+                    return settings.withBurst(next);
+                default:
+                    return settings;
+            }
+        }
     }
 }

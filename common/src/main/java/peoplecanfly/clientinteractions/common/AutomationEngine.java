@@ -4,78 +4,58 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * Owns the per-channel state of one game session.
+ * Owns the runtime state of every feature.
  *
- * <p>This class is deliberately free of any Minecraft types: all game access happens through
- * {@link Host}. That keeps the whole decision logic testable with a fake host.</p>
+ * <p>Mutual exclusion is the rule that matters here: the five features of one {@link ActionChannel}
+ * all drive the same mouse button, so activating one switches the others of that channel off. Features
+ * of the other channel are untouched, because attack and use are independent.</p>
+ *
+ * <p>No Minecraft types; all game access goes through {@link Host}.</p>
  */
 public final class AutomationEngine {
-    /** Everything the engine needs from the game, and nothing more. */
+    /** Everything the engine needs from the game. */
     public interface Host {
         /**
-         * Injects one client-tick worth of input for the given vanilla action.
+         * Applies one tick of one feature.
          *
          * @param channel the button being driven
-         * @param clicks how many discrete clicks to perform on this tick
-         * @param hold true to report the button as held for this tick
-         * @param release true to release the button before the clicks
+         * @param clicks discrete clicks to perform on this tick
+         * @param hold whether the button counts as held for this tick
+         * @param release whether a previous hold must be released first
          */
         void apply(ActionChannel channel, int clicks, boolean hold, boolean release);
 
-        /** Called when a channel stops being active, so the host can release the button. */
+        /** Releases a button, called when its feature stops. */
         void release(ActionChannel channel);
     }
 
-    /** Immutable snapshot of the configuration for one channel. */
-    public static final class ChannelConfig {
-        private final AutomationMode mode;
-        private final ChannelSettings settings;
-
-        public ChannelConfig(AutomationMode mode, ChannelSettings settings) {
-            this.mode = mode;
-            this.settings = settings;
-        }
-
-        public AutomationMode mode() {
-            return this.mode;
-        }
-
-        public ChannelSettings settings() {
-            return this.settings;
-        }
-    }
-
-    private final Map<ActionChannel, ChannelScheduler> schedulers = new EnumMap<>(ActionChannel.class);
-    private final Map<ActionChannel, ChannelConfig> configs = new EnumMap<>(ActionChannel.class);
+    private final Map<Feature, FeatureScheduler> schedulers = new EnumMap<>(Feature.class);
+    private final Map<Feature, FeatureSettings> settings = new EnumMap<>(Feature.class);
     private final Host host;
     private boolean enabled = true;
 
     public AutomationEngine(Host host) {
         this.host = host;
 
-        for (ActionChannel channel : ActionChannel.values()) {
-            this.schedulers.put(channel, new ChannelScheduler());
-            this.configs.put(channel, new ChannelConfig(AutomationMode.HOLD, ChannelSettings.defaults()));
+        for (Feature feature : Feature.values()) {
+            this.schedulers.put(feature, new FeatureScheduler());
+            this.settings.put(feature, FeatureSettings.defaults());
         }
     }
 
-    public ChannelScheduler scheduler(ActionChannel channel) {
-        return this.schedulers.get(channel);
+    public FeatureSettings settings(Feature feature) {
+        return this.settings.get(feature);
     }
 
-    public ChannelConfig config(ActionChannel channel) {
-        return this.configs.get(channel);
+    public void setSettings(Feature feature, FeatureSettings value) {
+        this.settings.put(feature, value == null ? FeatureSettings.defaults() : value);
     }
 
-    public void setConfig(ActionChannel channel, ChannelConfig config) {
-        this.configs.put(channel, config);
-    }
-
-    /** The master switch of the mod; when off no input is injected, but phases keep running. */
     public boolean isEnabled() {
         return this.enabled;
     }
 
+    /** Master switch: turning it off releases the buttons but keeps every timer running. */
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
 
@@ -86,61 +66,93 @@ public final class AutomationEngine {
         }
     }
 
-    public boolean isActive(ActionChannel channel) {
-        return this.schedulers.get(channel).isActive();
+    public boolean isActive(Feature feature) {
+        return this.schedulers.get(feature).isActive();
     }
 
-    /** Toggles a channel; returns the state after toggling. */
-    public boolean toggle(ActionChannel channel) {
-        ChannelScheduler scheduler = this.schedulers.get(channel);
-
-        if (scheduler.isActive()) {
-            this.stop(channel);
-            return false;
-        }
-
-        scheduler.activate();
-        return true;
-    }
-
-    /** Stops a single channel and lets the host release the key. */
-    public void stop(ActionChannel channel) {
-        ChannelScheduler scheduler = this.schedulers.get(channel);
-
-        if (scheduler.isActive()) {
-            scheduler.deactivate();
-            this.host.release(channel);
-        }
-    }
-
-    /** Stops everything, e.g. when leaving the world. */
-    public void stopAll() {
-        for (ActionChannel channel : ActionChannel.values()) {
-            this.stop(channel);
-        }
+    public FeatureScheduler scheduler(Feature feature) {
+        return this.schedulers.get(feature);
     }
 
     /**
-     * Advances every active channel by exactly one client tick.
+     * Switches a feature on or off.
      *
-     * <p>Called once per client tick, so configured intervals map one-to-one onto game ticks.</p>
+     * <p>Turning a feature on switches off every other feature of the same channel first, so at most
+     * one feature per button is ever running.</p>
+     *
+     * @return the state of the feature after the call
      */
+    public boolean toggle(Feature feature) {
+        if (this.schedulers.get(feature).isActive()) {
+            this.stop(feature);
+            return false;
+        }
+
+        this.activate(feature);
+        return true;
+    }
+
+    /** Activates a feature, switching off the other features of its channel. */
+    public void activate(Feature feature) {
+        for (Feature other : Feature.forChannel(feature.channel())) {
+            if (other != feature) {
+                this.stop(other);
+            }
+        }
+
+        this.schedulers.get(feature).activate();
+    }
+
+    public void stop(Feature feature) {
+        FeatureScheduler scheduler = this.schedulers.get(feature);
+
+        if (scheduler.isActive()) {
+            scheduler.deactivate();
+            this.host.release(feature.channel());
+        }
+    }
+
+    /** Stops every feature, e.g. when leaving the world. */
+    public void stopAll() {
+        for (Feature feature : Feature.values()) {
+            this.stop(feature);
+        }
+    }
+
+    /** Stops every feature of one channel. */
+    public void stopChannel(ActionChannel channel) {
+        for (Feature feature : Feature.forChannel(channel)) {
+            this.stop(feature);
+        }
+    }
+
+    /** The feature currently active for a channel, or {@code null}. */
+    public Feature activeFeature(ActionChannel channel) {
+        for (Feature feature : Feature.forChannel(channel)) {
+            if (this.schedulers.get(feature).isActive()) {
+                return feature;
+            }
+        }
+
+        return null;
+    }
+
+    /** Advances every active feature by exactly one client tick. */
     public void tick() {
-        for (ActionChannel channel : ActionChannel.values()) {
-            ChannelScheduler scheduler = this.schedulers.get(channel);
+        for (Feature feature : Feature.values()) {
+            FeatureScheduler scheduler = this.schedulers.get(feature);
 
             if (!scheduler.isActive()) {
                 continue;
             }
 
-            ChannelConfig config = this.configs.get(channel);
-            TickAction action = scheduler.tick(config.mode(), config.settings());
+            TickAction action = scheduler.tick(feature, this.settings.get(feature));
 
             if (this.enabled) {
-                this.host.apply(channel, action.clicks(), action.hold(), action.releases());
+                this.host.apply(feature.channel(), action.clicks(), action.hold(), action.releases());
             } else {
-                // Automation is paused: the phase keeps running but the game is never touched.
-                this.host.release(channel);
+                // Paused: the phase keeps running but the game is not touched.
+                this.host.release(feature.channel());
             }
         }
     }

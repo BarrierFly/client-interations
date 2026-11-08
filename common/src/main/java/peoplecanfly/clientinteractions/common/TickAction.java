@@ -1,11 +1,7 @@
 package peoplecanfly.clientinteractions.common;
 
 /**
- * A single output step produced by {@link ChannelScheduler} for one client tick.
- *
- * <p>{@link #clicks()} is the number of discrete clicks the channel should perform on this tick,
- * {@link #hold()} asks for the button to stay pressed for the whole tick, and {@link #releases()}
- * asks for a release at the start of the tick (used between two periodic hold onsets).</p>
+ * What one feature should do on one client tick.
  */
 public final class TickAction {
     private static final TickAction NONE = new TickAction(0, false, false);
@@ -32,30 +28,21 @@ public final class TickAction {
         return held ? new TickAction(0, true, false) : NONE;
     }
 
-    public static TickAction release() {
-        return new TickAction(0, false, true);
-    }
-
     public static TickAction of(int clicks, boolean hold, boolean release) {
         return clicks <= 0 && !hold && !release ? NONE : new TickAction(Math.max(0, clicks), hold, release);
     }
 
-    /** Number of discrete clicks to inject on this tick. */
+    /** How many discrete clicks to inject on this tick. */
     public int clicks() {
         return this.clicks;
     }
 
-    /** Whether any click has to be injected. */
-    public boolean fire() {
-        return this.clicks > 0;
-    }
-
-    /** The button should be reported as held during this tick. */
+    /** Whether the button should be reported as held during this tick. */
     public boolean hold() {
         return this.hold;
     }
 
-    /** The button should be explicitly released before any click of this tick. */
+    /** Whether the button has to be released before this tick's clicks. */
     public boolean releases() {
         return this.release;
     }

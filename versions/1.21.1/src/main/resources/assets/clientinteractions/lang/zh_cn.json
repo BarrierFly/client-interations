@@ -1,6 +1,14 @@
 {
   "key.categories.clientinteractions": "客户端交互",
-  "key.clientinteractions.toggle_attack": "切换攻击自动化",
-  "key.clientinteractions.toggle_use": "切换使用自动化",
-  "key.clientinteractions.open_config": "打开客户端交互配置"
+  "key.clientinteractions.attack_fast_click": "攻击：快速连点",
+  "key.clientinteractions.attack_hold": "攻击：长按",
+  "key.clientinteractions.attack_periodic_burst": "攻击：周期连点",
+  "key.clientinteractions.attack_periodic_click": "攻击：周期点击",
+  "key.clientinteractions.attack_periodic_hold": "攻击：周期长按",
+  "key.clientinteractions.open_config": "打开客户端交互配置",
+  "key.clientinteractions.use_fast_click": "使用：快速连点",
+  "key.clientinteractions.use_hold": "使用：长按",
+  "key.clientinteractions.use_periodic_burst": "使用：周期连点",
+  "key.clientinteractions.use_periodic_click": "使用：周期点击",
+  "key.clientinteractions.use_periodic_hold": "使用：周期长按"
 }
