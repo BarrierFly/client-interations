@@ -3,8 +3,8 @@
 **English** | [中文](#中文说明)
 
 > **Reading guide**
-> This English section is 1 264 words (6 601 characters without spaces) and takes about 5 minutes.
-> The Chinese section is 3 611 characters and takes about 8 minutes. The full [`LICENSE`](LICENSE) is
+> This English section is 1 359 words (7 077 characters without spaces) and takes about 6 minutes.
+> The Chinese section is 3 791 characters and takes about 8 minutes. The full [`LICENSE`](LICENSE) is
 > 1 212 characters (197 words).
 
 A client-side Fabric mod with ten independent automation features for Minecraft's two mouse buttons,
@@ -79,18 +79,26 @@ Open it with the config key (default `]`) or from Mod Menu. There is one page pe
 page switch is the top right button, so the five features on screen are exactly the ones that exclude
 each other.
 
-Each row is one feature: the name toggles it, the key button next to it rebinds it, and the value
-buttons cycle through sensible steps. The row widths come from one width budget, so nothing can run past
-the edge, and the row spacing shrinks on a short window so the last row never sits under Done.
+Each row is one feature: the name toggles it, the key button next to it rebinds it, and the labelled
+fields hold its numbers. The row widths come from one width budget, so nothing can run past the edge, and
+the row spacing shrinks on a short window so the last row never sits under Done.
 
-### Combinations
+### Combinations and mouse buttons
 
-A hotkey can be a combination such as `Ctrl+Shift+R`, like Tweakeroo's. Click the key button, then hold
-the modifiers and press the main key. The screen shows what is bound now, which modifiers are held at
-that instant, and what a modifier pressed on its own means.
+A hotkey can be any keyboard key or any mouse button (left, right, middle, 4-8), alone or in any
+combination of **Ctrl, Shift, Alt and Win**, e.g. `Ctrl+Shift+Alt+R` or `Ctrl+Left Click`. Click the key
+button, hold the modifiers, then press the key or click the button. The screen shows what is bound now,
+which modifiers are held at that instant, and what a modifier pressed alone means.
 
 Matching is exact: `R` does not fire while Shift is held, and `Shift+R` does not fire without it, so one
-key press can never trigger two features. `Esc` or the `Clear` button leaves the feature unbound.
+press can never trigger two features. `Esc` or the `Clear` button leaves the feature unbound.
+
+A rebind takes effect immediately, without restarting the game.
+
+### Numbers
+
+Each number is a text field: click it and type the value, instead of stepping through presets. Only digits
+are accepted and out-of-range input is clamped to the same limits the engine enforces.
 
 Config lives in `config/clientinteractions.json`, one block per feature plus its key. Missing or invalid
 values fall back to defaults. The format is identical on every supported version.
@@ -100,7 +108,8 @@ values fall back to defaults. The format is identical on every supported version
   "enabled": true, "hud": true, "messages": true,
   "attack_hold":          { "interval": 20, "duration": 10, "perTick": 1, "burst": 3,
                             "key": "key.keyboard.r", "modifiers": "ctrl+shift" },
-  "attack_periodic_hold": { "interval": 20, "duration": 10, "perTick": 1, "burst": 3, "key": "key.keyboard.h" },
+  "attack_periodic_hold": { "interval": 20, "duration": 10, "perTick": 1, "burst": 3,
+                            "key": "key.mouse.4", "modifiers": "win" },
   "use_fast_click":       { "interval": 20, "duration": 10, "perTick": 4, "burst": 3 }
 }
 ```
@@ -130,12 +139,14 @@ classpath regardless of the declaration.
 
 ## Tests
 
-* 36 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
-  master switch, starting with the master switch off, combination matching, and a 7000 tick drift check.
+* 43 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
+  master switch, starting with the master switch off, combination matching including mouse buttons and
+  Win, and a 7000 tick drift check.
 * 1.21.10, 1.21.11 and 26.3 have in-game tests that boot a real client, create a world, and assert
   holds, clicks, one-tick-per-tick timing, mutual exclusion, the master switch, screen behaviour,
-  combination matching, and that both screens draw visible text with no widget overlapping another or
-  leaving the screen at a small gui.
+  combination matching, that a rebind fires without a restart, that a mouse button binds too, that a typed
+  number reaches the engine and is clamped, and that both screens draw visible text with no widget
+  overlapping another or leaving the screen at a small gui.
 * 1.19.4, 1.20.1 and 1.21.1 have no client gametest API; they are verified by compiling, packaging and
   starting the game.
 
@@ -175,8 +186,8 @@ if something is missing.
 **[English](#client-interactions)** | **中文**
 
 > **阅读指引**
-> 中文部分 3 611 字（不计空白），大约需要 8 分钟；英文部分 1 264 词（不计空格 6 601 字符），
-> 大约需要 5 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
+> 中文部分 3 791 字（不计空白），大约需要 8 分钟；英文部分 1 359 词（不计空格 7 077 字符），
+> 大约需要 6 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
 
 一个客户端 Fabric 模组，为 Minecraft 的两个鼠标键——**攻击**（左键）与**使用**（右键）——提供
 **十个互相独立**的自动化功能。每个功能都有自己的开关、自己的快捷键和自己的参数。
@@ -244,18 +255,26 @@ if something is missing.
 用配置键（默认 `]`）或从 Mod Menu 打开。每个按键一页，翻页按钮在右上角，所以
 屏幕上的五个功能正好就是互斥的那五个。
 
-每一行是一个功能：点名字切换开关，点它旁边的按键按钮重新绑定，点数值按钮在合理
-档位之间循环。各列宽度由同一份宽度预算分配，所以不会跑出屏幕；窗口矮时行距会
-收紧，最后一行不会压在 Done 上。
+每一行是一个功能：点名字切换开关，点它旁边的按键按钮重新绑定，带标签的输入框填写
+数值。各列宽度由同一份宽度预算分配，所以不会跑出屏幕；窗口矮时行距会收紧，
+最后一行不会压在 Done 上。
 
-### 组合键
+### 组合键与鼠标键
 
-快捷键可以是 `Ctrl+Shift+R` 这样的组合键，和 Tweakeroo 一样。点一下按键按钮，
-然后按住修饰键再按主键。界面会显示当前绑定、此刻按住的修饰键，以及单独按下修饰
-键时的提示。
+快捷键可以是任意键盘键或任意鼠标键（左键、右键、中键、4 到 8），并可与
+**Ctrl、Shift、Alt、Win** 任意组合，例如 `Ctrl+Shift+Alt+R` 或 `Ctrl+鼠标左键`。
+点一下按键按钮，按住修饰键，再按键或点鼠标键即可。界面会显示当前绑定、此刻按住
+的修饰键，以及单独按下修饰键时的提示。
 
 匹配是严格的：按住 Shift 不会触发 `R`，不按 Shift 也不会触发 `Shift+R`，所以一次
 按键绝不会同时触发两个功能。Escape 或 `Clear` 按钮可取消绑定。
+
+改键立即生效，不需要重启游戏。
+
+### 数值
+
+每个数值都是输入框：点进去直接输入，不必在预设档位之间循环。只接受数字，超出范围
+的输入会被钳制到引擎同一套上下限。
 
 配置文件位于 `config/clientinteractions.json`，每个功能一个区块，连同它的快捷键。缺失或非法值
 会回退到默认值。各受支持版本的格式完全相同。
@@ -294,11 +313,12 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 
 ## 测试
 
-* 36 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
-  组合键匹配，以及 7000 刻的漂移检查。
+* 43 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
+  组合键匹配（含鼠标键与 Win），以及 7000 刻的漂移检查。
 * 1.21.10、1.21.11、26.3 有游戏内测试：启动真实客户端、创建世界，断言长按、点击、每刻一步的
-  计时、互斥、总开关、界面行为、组合键匹配，以及在较小 GUI 下两个界面都能画出可见文字、
-  且没有按钮互相重叠或跑出屏幕。
+  计时、互斥、总开关、界面行为、组合键匹配、改键无需重启即生效、鼠标键可绑定、输入的
+  数值会进入引擎并被钳制，以及在较小 GUI 下两个界面都能画出可见文字、且没有按钮互相
+  重叠或跑出屏幕。
 * 1.19.4、1.20.1、1.21.1 没有客户端 gametest API，通过编译、打包和启动游戏验证。
 
 ## 疑难排查

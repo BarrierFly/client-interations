@@ -13,29 +13,35 @@ import peoplecanfly.clientinteractions.common.KeyNames;
 import peoplecanfly.clientinteractions.common.StatusText;
 
 /**
- * Captures one key press, with modifiers, and assigns it to one feature.
+ * Captures one key <em>or mouse button</em>, with modifiers, and assigns it to one feature.
+ *
+ * <h2>What can be bound</h2>
+ * <p>Any keyboard key, any mouse button vanilla knows (left, right, middle, 4 through 8), and any
+ * combination of Ctrl, Shift, Alt and Win around them. Vanilla routes mouse buttons through the same
+ * mapping table as keys, so a mouse button is stored as an ordinary key name such as
+ * {@code key.mouse.4}; this screen simply listens to both kinds of press.</p>
  *
  * <h2>What the screen shows</h2>
- * <p>Waiting for a key is the moment the user most needs feedback, so the screen draws the feature name,
- * a live list of the modifiers currently held, and what pressing Escape or Backspace will do. The
- * modifier state is redrawn every frame, so pressing Shift visibly changes the hint before the main key
- * is chosen - that is the difference between "it captured my combination" and "nothing happened".</p>
+ * <p>Choosing a binding is the moment feedback matters, so the screen always draws: the feature, the
+ * binding in effect now, the modifiers held at this very frame, and what Escape and Clear do. Pressing a
+ * modifier on its own is reported rather than ignored, which was the old "nothing is shown" case.</p>
  *
  * <h2>Colours</h2>
  * <p>Every text colour carries an explicit alpha of {@code FF}. Vanilla skips drawing text whose colour
- * has zero alpha from 1.21.10 on, so the plain {@code 0xFFFFFF} used before rendered nothing at all.</p>
+ * has zero alpha from 1.21.10 on, so a plain {@code 0xFFFFFF} rendered nothing.</p>
  */
 public final class KeyBindScreen extends Screen {
     private static final int TEXT = 0xFFFFFFFF;
     private static final int DIM = 0xFFA0A0A0;
     private static final int ACCENT = 0xFFFFE0B0;
+    private static final int WARN = 0xFFFF8080;
     private static final int LINE = 11;
 
     private final Screen parent;
     private final ClientInteractionsClient mod;
     private final Feature feature;
 
-    /** Set when a modifier key was pressed on its own, so the screen can say so instead of ignoring it. */
+    /** Set when a press cannot be used as a binding, so the screen can explain instead of ignoring it. */
     private String notice = "";
 
     public KeyBindScreen(Screen parent, ClientInteractionsClient mod, Feature feature) {
@@ -53,9 +59,7 @@ public final class KeyBindScreen extends Screen {
                 .bounds(this.width / 2 - 100, this.buttonTop(), 96, 20)
                 .build());
 
-        this.addRenderableWidget(Button.builder(Component.literal("Clear"), b -> {
-                            this.apply(KeyCombo.unbound());
-                        })
+        this.addRenderableWidget(Button.builder(Component.literal("Clear"), b -> this.apply(KeyCombo.unbound()))
                 .bounds(this.width / 2 + 4, this.buttonTop(), 96, 20)
                 .build());
     }
@@ -69,7 +73,7 @@ public final class KeyBindScreen extends Screen {
         super.render(graphics, mouseX, mouseY, delta);
 
         int center = this.width / 2;
-        int y = 24;
+        int y = 20;
 
         graphics.drawCenteredString(this.font, this.title, center, y, TEXT);
         y += LINE + 6;
@@ -80,46 +84,31 @@ public final class KeyBindScreen extends Screen {
         // What is bound right now, so the screen is never blank about the current state.
         graphics.drawCenteredString(this.font,
                 Component.literal("Now: " + this.keyDisplay()), center, y, ACCENT);
-        y += LINE + 10;
+        y += LINE + 8;
 
         // A live readout of the modifiers held at this instant.
         graphics.drawCenteredString(this.font, Component.literal(this.heldModifiers()), center, y, TEXT);
         y += LINE + 2;
 
         if (!this.notice.isEmpty()) {
-            graphics.drawCenteredString(this.font, Component.literal(this.notice), center, y, ACCENT);
+            graphics.drawCenteredString(this.font, Component.literal(this.notice), center, y, WARN);
             y += LINE;
         }
 
-        graphics.drawCenteredString(this.font,
-                Component.literal("Esc or Clear button unbinds"), center, y, DIM);
+        graphics.drawCenteredString(this.font, Component.literal(KeyNames.bindingHint()), center, y, DIM);
+        y += LINE;
+        graphics.drawCenteredString(this.font, Component.literal("Esc or Clear unbinds"), center, y, DIM);
     }
 
-    /** The modifiers currently held, spelled out. */
+    /** The modifiers currently held, spelled out, including Win. */
     private String heldModifiers() {
-        boolean shift = this.minecraft.hasShiftDown();
-        boolean control = this.minecraft.hasControlDown();
-        boolean alt = this.minecraft.hasAltDown();
+        String described = this.modifiers().describe();
 
-        if (!shift && !control && !alt) {
-            return "No modifier held";
-        }
+        return described.equals("none") ? "No modifier held" : "Holding: " + described;
+    }
 
-        StringBuilder builder = new StringBuilder("Holding: ");
-
-        if (control) {
-            builder.append("Ctrl ");
-        }
-
-        if (shift) {
-            builder.append("Shift ");
-        }
-
-        if (alt) {
-            builder.append("Alt ");
-        }
-
-        return builder.toString().trim();
+    private Modifiers modifiers() {
+        return new Modifiers(this.minecraft);
     }
 
     private String keyDisplay() {
@@ -129,12 +118,7 @@ public final class KeyBindScreen extends Screen {
             return "Unbound";
         }
 
-        KeyMapping mapping = this.mod.keyFor(this.feature);
-        String keyName = mapping != null && !mapping.isUnbound()
-                ? mapping.getTranslatedKeyMessage().getString()
-                : KeyNames.readable(combo.keyName());
-
-        return combo.display(keyName);
+        return combo.display(KeyNames.readable(combo.keyName()));
     }
 
     @Override
@@ -144,31 +128,37 @@ public final class KeyBindScreen extends Screen {
             return true;
         }
 
-        String name = keyNameOf(event);
+        InputConstants.Key key = InputConstants.Type.KEYSYM.getOrCreate(event.key());
 
-        if (name == null) {
+        return this.capture(key.getName());
+    }
+
+    @Override
+    public boolean mouseClicked(net.minecraft.client.input.MouseButtonEvent event, boolean doubleClick) {
+        // A click on one of this screen's own buttons must still work; only clicks outside them are
+        // treated as a binding.
+        if (super.mouseClicked(event, doubleClick)) {
             return true;
         }
 
-        if (KeyNames.isModifier(name)) {
-            // A modifier on its own is not a usable binding, so say that rather than closing silently.
-            this.notice = KeyNames.readable(name) + " is a modifier - hold it and press another key";
+        InputConstants.Key key = InputConstants.Type.MOUSE.getOrCreate(event.button());
+
+        return this.capture(key.getName());
+    }
+
+    /** Stores a captured key name, or explains why it cannot be used. */
+    private boolean capture(String keyName) {
+        if (KeyNames.isModifier(keyName)) {
+            // A modifier alone is not a usable binding; say so rather than closing silently.
+            this.notice = KeyNames.readable(keyName) + " is a modifier - hold it and press another key";
             this.rebuildWidgets();
             return true;
         }
 
-        this.apply(KeyCombo.of(name,
-                this.minecraft.hasShiftDown(),
-                this.minecraft.hasControlDown(),
-                this.minecraft.hasAltDown()));
+        Modifiers held = this.modifiers();
+
+        this.apply(KeyCombo.of(keyName, held.shift(), held.control(), held.alt(), held.win()));
         return true;
-    }
-
-    /** The vanilla name of the pressed key, or {@code null} when it cannot be represented. */
-    private String keyNameOf(KeyEvent event) {
-        InputConstants.Key key = InputConstants.Type.KEYSYM.getOrCreate(event.key());
-
-        return key.getName();
     }
 
     /** Stores the combination and returns to the list. */

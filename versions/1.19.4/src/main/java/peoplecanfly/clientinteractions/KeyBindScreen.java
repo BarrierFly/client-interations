@@ -1,35 +1,46 @@
 package peoplecanfly.clientinteractions;
 
 import com.mojang.blaze3d.platform.InputConstants;
-import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.KeyMapping;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import org.lwjgl.glfw.GLFW;
 import peoplecanfly.clientinteractions.common.Feature;
 import peoplecanfly.clientinteractions.common.KeyCombo;
 import peoplecanfly.clientinteractions.common.KeyNames;
 import peoplecanfly.clientinteractions.common.StatusText;
 
 /**
- * Captures one key press, with modifiers, and assigns it to one feature.
+ * Captures one key <em>or mouse button</em>, with modifiers, and assigns it to one feature.
  *
- * <p>Vanilla key bindings hold a single key, so a combination is captured here and stored in the mod's
- * own config. The screen shows the feature, what is bound now, and which modifiers are held at this
- * instant, so the moment of binding is never silent.</p>
+ * <h2>What can be bound</h2>
+ * <p>Any keyboard key, any mouse button vanilla knows (left, right, middle, 4 through 8), and any
+ * combination of Ctrl, Shift, Alt and Win around them. Vanilla routes mouse buttons through the same
+ * mapping table as keys, so a mouse button is stored as an ordinary key name such as
+ * {@code key.mouse.4}; this screen simply listens to both kinds of press.</p>
+ *
+ * <h2>What the screen shows</h2>
+ * <p>Choosing a binding is the moment feedback matters, so the screen always draws: the feature, the
+ * binding in effect now, the modifiers held at this very frame, and what Escape and Clear do. Pressing a
+ * modifier on its own is reported rather than ignored, which was the old "nothing is shown" case.</p>
+ *
+ * <h2>Colours</h2>
+ * <p>Every text colour carries an explicit alpha of {@code FF}. Vanilla skips drawing text whose colour
+ * has zero alpha from 1.21.10 on, so a plain {@code 0xFFFFFF} rendered nothing.</p>
  */
 public final class KeyBindScreen extends Screen {
     private static final int TEXT = 0xFFFFFFFF;
     private static final int DIM = 0xFFA0A0A0;
     private static final int ACCENT = 0xFFFFE0B0;
+    private static final int WARN = 0xFFFF8080;
     private static final int LINE = 11;
 
     private final Screen parent;
     private final ClientInteractionsClient mod;
     private final Feature feature;
 
-    /** Set when a modifier key was pressed on its own, so the screen can say so. */
+    /** Set when a press cannot be used as a binding, so the screen can explain instead of ignoring it. */
     private String notice = "";
 
     public KeyBindScreen(Screen parent, ClientInteractionsClient mod, Feature feature) {
@@ -63,7 +74,7 @@ public final class KeyBindScreen extends Screen {
         super.render(poseStack, mouseX, mouseY, delta);
 
         int center = this.width / 2;
-        int y = 24;
+        int y = 20;
 
         drawCenteredString(poseStack, this.font, this.title, center, y, TEXT);
         y += LINE + 6;
@@ -71,46 +82,34 @@ public final class KeyBindScreen extends Screen {
         drawCenteredString(poseStack, this.font, StatusText.keyPrompt(this.feature), center, y, DIM);
         y += LINE + 2;
 
-        drawCenteredString(poseStack, this.font, Component.literal("Now: " + this.keyDisplay()),
-                center, y, ACCENT);
-        y += LINE + 10;
+        // What is bound right now, so the screen is never blank about the current state.
+        drawCenteredString(poseStack, this.font,
+                Component.literal("Now: " + this.keyDisplay()), center, y, ACCENT);
+        y += LINE + 8;
 
+        // A live readout of the modifiers held at this instant.
         drawCenteredString(poseStack, this.font, Component.literal(this.heldModifiers()), center, y, TEXT);
         y += LINE + 2;
 
         if (!this.notice.isEmpty()) {
-            drawCenteredString(poseStack, this.font, Component.literal(this.notice), center, y, ACCENT);
+            drawCenteredString(poseStack, this.font, Component.literal(this.notice), center, y, WARN);
             y += LINE;
         }
 
-        drawCenteredString(poseStack, this.font, Component.literal("Esc or Clear button unbinds"),
-                center, y, DIM);
+        drawCenteredString(poseStack, this.font, Component.literal(KeyNames.bindingHint()), center, y, DIM);
+        y += LINE;
+        drawCenteredString(poseStack, this.font, Component.literal("Esc or Clear unbinds"), center, y, DIM);
     }
 
+    /** The modifiers currently held, spelled out, including Win. */
     private String heldModifiers() {
-        boolean shift = Screen.hasShiftDown();
-        boolean control = Screen.hasControlDown();
-        boolean alt = Screen.hasAltDown();
+        String described = this.modifiers().describe();
 
-        if (!shift && !control && !alt) {
-            return "No modifier held";
-        }
+        return described.equals("none") ? "No modifier held" : "Holding: " + described;
+    }
 
-        StringBuilder builder = new StringBuilder("Holding: ");
-
-        if (control) {
-            builder.append("Ctrl ");
-        }
-
-        if (shift) {
-            builder.append("Shift ");
-        }
-
-        if (alt) {
-            builder.append("Alt ");
-        }
-
-        return builder.toString().trim();
+    private Modifiers modifiers() {
+        return new Modifiers(this.minecraft);
     }
 
     private String keyDisplay() {
@@ -120,36 +119,50 @@ public final class KeyBindScreen extends Screen {
             return "Unbound";
         }
 
-        KeyMapping mapping = this.mod.keyFor(this.feature);
-        String keyName = mapping != null && !mapping.isUnbound()
-                ? mapping.getTranslatedKeyMessage().getString()
-                : KeyNames.readable(combo.keyName());
-
-        return combo.display(keyName);
+        return combo.display(KeyNames.readable(combo.keyName()));
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+        if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) {
             this.apply(KeyCombo.unbound());
             return true;
         }
 
-        String name = InputConstants.Type.KEYSYM.getOrCreate(keyCode).getName();
+        InputConstants.Key key = InputConstants.Type.KEYSYM.getOrCreate(keyCode);
 
-        if (KeyNames.isModifier(name)) {
-            this.notice = KeyNames.readable(name) + " is a modifier - hold it and press another key";
+        return this.capture(key.getName());
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // A click on one of this screen's own buttons must still work; only clicks outside them are
+        // treated as a binding.
+        if (super.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+
+        InputConstants.Key key = InputConstants.Type.MOUSE.getOrCreate(button);
+
+        return this.capture(key.getName());
+    }
+
+    /** Stores a captured key name, or explains why it cannot be used. */
+    private boolean capture(String keyName) {
+        if (KeyNames.isModifier(keyName)) {
+            // A modifier alone is not a usable binding; say so rather than closing silently.
+            this.notice = KeyNames.readable(keyName) + " is a modifier - hold it and press another key";
             this.rebuildWidgets();
             return true;
         }
 
-        this.apply(KeyCombo.of(name,
-                Screen.hasShiftDown(),
-                Screen.hasControlDown(),
-                Screen.hasAltDown()));
+        Modifiers held = this.modifiers();
+
+        this.apply(KeyCombo.of(keyName, held.shift(), held.control(), held.alt(), held.win()));
         return true;
     }
 
+    /** Stores the combination and returns to the list. */
     private void apply(KeyCombo combo) {
         this.mod.config().setKey(this.feature, combo);
         this.mod.applyKeyBinding(this.feature);

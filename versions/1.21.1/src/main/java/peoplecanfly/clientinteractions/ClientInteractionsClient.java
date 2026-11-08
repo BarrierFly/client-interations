@@ -12,7 +12,6 @@ import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
@@ -78,7 +77,14 @@ public final class ClientInteractionsClient implements ClientModInitializer {
      * Pushes one feature's combination into its vanilla key mapping.
      *
      * <p>Only the main key is written; the modifiers stay in the config, because vanilla has nowhere to
-     * put them.</p>
+     * put them. A mouse button works the same way, since vanilla reports those through the same mapping
+     * table.</p>
+     *
+     * <p>{@code KeyMapping#setKey} only assigns a field: it does not add the mapping to the
+     * key-to-binding table vanilla looks presses up in. That table is rebuilt by
+     * {@code KeyMapping#resetMapping}, which vanilla only calls when it loads the options and when the
+     * key binds screen opens. Without this call, a key bound at runtime would never fire until the next
+     * launch.</p>
      */
     public void applyKeyBinding(Feature feature) {
         KeyMapping mapping = this.featureKeys.get(feature);
@@ -91,10 +97,18 @@ public final class ClientInteractionsClient implements ClientModInitializer {
 
         if (!combo.isBound()) {
             mapping.setKey(InputConstants.UNKNOWN);
-            return;
+        } else {
+            mapping.setKey(InputConstants.getKey(combo.keyName()));
         }
 
-        mapping.setKey(InputConstants.getKey(combo.keyName()));
+        KeyMapping.resetMapping();
+    }
+
+    /** Rebinds every feature, e.g. after the config was reloaded. */
+    public void applyAllKeyBindings() {
+        for (Feature feature : Feature.values()) {
+            this.applyKeyBinding(feature);
+        }
     }
 
     /** Pushes the current settings into the engine, which keeps running while they change. */
@@ -171,9 +185,11 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             return;
         }
 
-        boolean shift = Screen.hasShiftDown();
-        boolean control = Screen.hasControlDown();
-        boolean alt = Screen.hasAltDown();
+        Modifiers held = new Modifiers(client);
+        boolean shift = held.shift();
+        boolean control = held.control();
+        boolean alt = held.alt();
+        boolean win = held.win();
 
         for (Feature feature : Feature.values()) {
             KeyMapping key = this.featureKeys.get(feature);
@@ -184,7 +200,7 @@ public final class ClientInteractionsClient implements ClientModInitializer {
                 // Reacting only to the main key, then checking the modifiers, is what makes Shift+R and
                 // R different bindings. A press whose modifiers do not match is ignored rather than
                 // toggling the wrong feature.
-                if (combo.matches(shift, control, alt)) {
+                if (combo.matches(shift, control, alt, win)) {
                     this.toggleFeature(feature);
                 }
             }

@@ -51,6 +51,7 @@ public final class ClientGameTest implements FabricClientGameTest {
             testScreensDrawTextAtSmallSize(context);
             testKeyComboRoundTrip(context);
             testKeyComboActuallyFires(context);
+            testValueFieldAcceptsTypedNumbers(context);
 
             LOGGER.info("All in-game checks passed");
         }
@@ -325,6 +326,83 @@ public final class ClientGameTest implements FabricClientGameTest {
         return false;
     }
 
+    /**
+     * Types a value into the config screen's field and checks it reaches the engine.
+     *
+     * <p>The old UI only cycled through a fixed list of steps, so an exact number could not be entered.
+     * This asserts the field accepts digits, clamps to range, and stores the result.</p>
+     */
+    private void testValueFieldAcceptsTypedNumbers(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().config().setSettings(Feature.ATTACK_PERIODIC_CLICK,
+                    new FeatureSettings(20, 10, 1, 3));
+            mod().syncEngine();
+            return null;
+        });
+
+        context.setScreen(() -> new ConfigScreen(null, mod()));
+        context.waitTicks(2);
+
+        // Field order on the Attack page: 0 = Fast click x/tick, 1 = Periodic click Interval,
+        // 2 = Periodic click x/tick, then the two-field rows below. Index 1 is the periodic interval.
+        boolean typed = compute(context, () -> typeIntoField(1, "37"));
+        require(typed, "value field: a field exists for the feature");
+
+        context.waitTicks(2);
+        require(compute(context, () -> mod().config().settings(Feature.ATTACK_PERIODIC_CLICK).interval() == 37),
+                "value field: the typed number is stored, not snapped to a preset step");
+
+        // Out-of-range input is clamped rather than accepted.
+        require(compute(context, () -> typeIntoField(1, "999")),
+                "value field: the field still accepts input");
+        context.waitTicks(2);
+        require(compute(context, () -> mod()
+                        .config().settings(Feature.ATTACK_PERIODIC_CLICK).interval() == FeatureSettings.MAX_INTERVAL),
+                "value field: an out-of-range number is clamped");
+
+        // Back to a sane default for the rest of the run.
+        compute(context, () -> {
+            mod().config().setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(20, 10, 1, 3));
+            mod().syncEngine();
+            return null;
+        });
+
+        context.setScreen(() -> null);
+        context.waitTicks(2);
+    }
+
+    /**
+     * Types text into the first number field on the current config page.
+     *
+     * <p>Done by driving the widget the same way typing does, so it exercises the filter and the
+     * responder rather than writing the config directly.</p>
+     *
+     * @param fieldIndex which field on the row to fill, in the order the row shows them
+     */
+    private static boolean typeIntoField(int fieldIndex, String text) {
+        Screen screen = client().gui.screen();
+
+        if (!(screen instanceof ConfigScreen)) {
+            return false;
+        }
+
+        java.util.List<net.minecraft.client.gui.components.EditBox> boxes = new java.util.ArrayList<>();
+
+        for (net.minecraft.client.gui.components.events.GuiEventListener listener : screen.children()) {
+            if (listener instanceof net.minecraft.client.gui.components.EditBox box) {
+                boxes.add(box);
+            }
+        }
+
+        // The page lists five rows; the first row that has fields is the one under test.
+        if (boxes.size() <= fieldIndex) {
+            return false;
+        }
+
+        boxes.get(fieldIndex).setValue(text);
+        return true;
+    }
+
     private void testKeyComboRoundTrip(ClientGameTestContext context) {
         // A combination must survive a save/load cycle through the config file, because vanilla key
         // mappings cannot store modifiers.
@@ -395,6 +473,28 @@ public final class ClientGameTest implements FabricClientGameTest {
         require(compute(context, () -> "key.keyboard.k".equals(mod().keyFor(Feature.ATTACK_HOLD).saveString())),
                 "combo: the vanilla mapping is set to the main key");
 
+        // A binding changed at runtime must fire without restarting. Vanilla only rebuilds its
+        // key-to-binding table on load and when the key binds screen opens, so applyKeyBinding has to do
+        // it; without that the mapping would be inert until the next launch.
+        compute(context, () -> {
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.of("key.keyboard.j"));
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            return null;
+        });
+        require(compute(context, () -> keyFiresWithoutRestart("key.keyboard.j")),
+                "combo: a rebind takes effect immediately, without a restart");
+
+        // Mouse buttons use the same table, so one must be bindable and fire the same way.
+        compute(context, () -> {
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.of("key.mouse.4"));
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            return null;
+        });
+        require(compute(context, () -> keyFiresWithoutRestart("key.mouse.4")),
+                "combo: a mouse button binds and fires like a key");
+
         compute(context, () -> {
             mod().engine().stopAll();
             mod().config().setKey(Feature.ATTACK_HOLD, peoplecanfly.clientinteractions.common.KeyCombo.unbound());
@@ -406,10 +506,35 @@ public final class ClientGameTest implements FabricClientGameTest {
     }
 
     /**
-     * True when no two buttons overlap and every button is inside the screen.
+     * True when vanilla's key-to-binding table now resolves a press of {@code keyName} to this mod's
+     * mapping for {@code ATTACK_HOLD}.
      *
-     * <p>Being inside the screen is not enough: the original bug had the last row drawn underneath the
-     * Done button, which is a collision, not an overflow.</p>
+     * <p>This is exactly what {@code KeyMapping#resetMapping} is responsible for: a mapping whose key
+     * field changed but which was never re-registered is invisible to a real press, which is the bug that
+     * made a rebind inert until the next launch.</p>
+     */
+    private static boolean keyFiresWithoutRestart(String keyName) {
+        net.minecraft.client.KeyMapping mapping =
+                ClientInteractionsClient.get().keyFor(Feature.ATTACK_HOLD);
+
+        if (mapping == null || mapping.isUnbound() || !keyName.equals(mapping.saveString())) {
+            return false;
+        }
+
+        // KeyMapping.set dispatches through the same table a real press uses, so if the mapping receives
+        // the state change it will also receive the press.
+        com.mojang.blaze3d.platform.InputConstants.Key key =
+                com.mojang.blaze3d.platform.InputConstants.getKey(keyName);
+
+        net.minecraft.client.KeyMapping.set(key, true);
+        boolean receivedDown = mapping.isDown();
+        net.minecraft.client.KeyMapping.set(key, false);
+
+        return receivedDown && !mapping.isDown();
+    }
+
+    /**
+     * True when every button is fully inside the screen, which is what the overlap bug violated.
      */
     private static boolean allWidgetsOnScreen() {
         Screen screen = client().gui.screen();

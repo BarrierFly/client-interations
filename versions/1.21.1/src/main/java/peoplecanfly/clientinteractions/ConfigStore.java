@@ -71,12 +71,7 @@ public final class ConfigStore {
                 String key = getString(node, "key", null);
 
                 if (key != null && !key.isEmpty()) {
-                    String modifiers = getString(node, "modifiers", "");
-
-                    config.setKey(feature, KeyCombo.of(key,
-                            modifiers.contains("shift"),
-                            modifiers.contains("ctrl"),
-                            modifiers.contains("alt")));
+                    config.setKey(feature, KeyCombo.parse(key, getString(node, "modifiers", "")));
                 }
             }
         } catch (Exception e) {
@@ -107,22 +102,7 @@ public final class ConfigStore {
                 node.addProperty("key", combo.keyName());
 
                 if (combo.hasModifiers()) {
-                    StringBuilder modifiers = new StringBuilder();
-
-                    if (combo.hasControl()) {
-                        modifiers.append("ctrl+");
-                    }
-
-                    if (combo.hasShift()) {
-                        modifiers.append("shift+");
-                    }
-
-                    if (combo.hasAlt()) {
-                        modifiers.append("alt+");
-                    }
-
-                    // Trailing '+' would read back as an extra empty token, so it is dropped.
-                    node.addProperty("modifiers", modifiers.substring(0, modifiers.length() - 1));
+                    node.addProperty("modifiers", combo.modifierString());
                 }
             }
 

@@ -97,6 +97,29 @@ public final class FeatureSettings {
     }
 
     @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+
+        if (!(other instanceof FeatureSettings)) {
+            return false;
+        }
+
+        FeatureSettings settings = (FeatureSettings) other;
+
+        return this.interval == settings.interval
+                && this.duration == settings.duration
+                && this.perTick == settings.perTick
+                && this.burst == settings.burst;
+    }
+
+    @Override
+    public int hashCode() {
+        return java.util.Objects.hash(this.interval, this.duration, this.perTick, this.burst);
+    }
+
+    @Override
     public String toString() {
         return "FeatureSettings[interval=" + this.interval
                 + ", duration=" + this.duration
