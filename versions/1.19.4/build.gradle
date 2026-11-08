@@ -1,0 +1,78 @@
+// One Minecraft target. The build script is shared by every version and reads its
+// values from the local gradle.properties.
+//
+// A single, newest Loom release builds every target: newer Loom versions still know
+// how to build older Minecraft versions, which keeps the whole matrix on one toolchain.
+plugins {
+    id 'fabric-loom' version "${loom_version}"
+}
+
+base {
+    archivesName = "clientinteractions-${minecraft_version}"
+}
+
+// The version independent logic lives in common/ and is compiled straight into every
+// jar, so the mod stays a single, dependency free file. It is unit tested through the
+// common project, which is part of this build.
+sourceSets {
+    main {
+        java {
+            srcDir rootProject.file('common/src/main/java')
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+    modCompileOnly "com.terraformersmc:modmenu:${modmenu_version}"
+}
+
+loom {
+    accessWidenerPath = file('src/main/resources/clientinteractions.accesswidener')
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = 'UTF-8'
+    it.options.release = project.java_release as int
+}
+
+// Gradle itself has to run on Java 25 (the newest Loom requires it), but the game must run on the
+// Java version its Minecraft release targets: 1.19.4 and 1.20.1 predate Java 21 and their bundled
+// Mixin cannot read class files newer than Java 17. Telling Loom which launcher to use keeps both
+// requirements satisfied.
+def javaRelease = project.java_release as int
+
+tasks.withType(JavaExec).configureEach {
+    def launcher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(javaRelease)
+    }
+    javaLauncher.set(launcher)
+}
+
+java {
+    sourceCompatibility = JavaVersion.toVersion(project.java_release)
+    targetCompatibility = JavaVersion.toVersion(project.java_release)
+    withSourcesJar()
+}
+
+processResources {
+    def props = [
+            'version'          : project.mod_version,
+            'minecraft_version': project.minecraft_version,
+            'loader_version'   : project.loader_version,
+    ]
+    inputs.properties(props)
+
+    filesMatching('fabric.mod.json') {
+        expand(props)
+    }
+}
+
+jar {
+    from(rootProject.file('LICENSE')) {
+        rename { "${it}_clientinteractions" }
+    }
+}

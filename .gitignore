@@ -1,0 +1,30 @@
+# Build output
+build/
+out/
+*.class
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+bin/
+*.launch
+
+# Minecraft development run directories
+run/
+run-gametest/
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini

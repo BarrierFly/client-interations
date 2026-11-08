@@ -1,0 +1,6 @@
+{
+  "key.categories.clientinteractions": "客户端交互",
+  "key.clientinteractions.toggle_attack": "切换攻击自动化",
+  "key.clientinteractions.toggle_use": "切换使用自动化",
+  "key.clientinteractions.open_config": "打开客户端交互配置"
+}

@@ -1,0 +1,93 @@
+// Minecraft target build script.
+//
+// Every target is built by the same, newest Loom release so that one Gradle invocation can
+// produce a jar for each supported Minecraft version.
+//
+// Per-target values come from the local gradle.properties: the Minecraft version, its Fabric
+// API and Mod Menu builds, the Java release the game needs, and whether the version ships a
+// Fabric client gametest API (1.21.10 and newer) and therefore gets `runClientGameTest`.
+plugins {
+    id 'fabric-loom' version "${loom_version}"
+}
+
+base {
+    archivesName = "clientinteractions-${minecraft_version}"
+}
+
+def withGameTest = project.findProperty('gametest') == 'true'
+
+// The version independent logic lives in common/ and is compiled straight into every jar, so
+// the shipped file has no nested jars and no extra dependencies.
+sourceSets {
+    main {
+        java {
+            srcDir rootProject.file('common/src/main/java')
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+    modCompileOnly "com.terraformersmc:modmenu:${modmenu_version}"
+}
+
+loom {
+    accessWidenerPath = file('src/main/resources/clientinteractions.accesswidener')
+
+    runs {
+        if (withGameTest) {
+            // Headless in-game end to end check. The test class is only ever invoked when the
+            // `fabric.client.gametest` system property is set, so it is inert in normal play.
+            clientGameTest {
+                client()
+                name = 'Client Game Test'
+                vmArg '-Dfabric.client.gametest'
+                runDir 'run-gametest'
+            }
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = 'UTF-8'
+    it.options.release = project.java_release as int
+}
+
+java {
+    sourceCompatibility = JavaVersion.toVersion(project.java_release)
+    targetCompatibility = JavaVersion.toVersion(project.java_release)
+    withSourcesJar()
+}
+
+// Gradle itself runs on Java 25 (the newest Loom requires it), but the game has to run on the
+// Java version its Minecraft release targets. Telling Loom which launcher to use keeps both
+// requirements satisfied.
+def gameJava = project.java_release as int
+
+tasks.withType(JavaExec).configureEach {
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(gameJava)
+    })
+}
+
+processResources {
+    def props = [
+            'version'          : project.mod_version,
+            'minecraft_version': project.minecraft_version,
+            'loader_version'   : project.loader_version,
+    ]
+    inputs.properties(props)
+
+    filesMatching('fabric.mod.json') {
+        expand(props)
+    }
+}
+
+jar {
+    from(rootProject.file('LICENSE')) {
+        rename { "${it}_clientinteractions" }
+    }
+}

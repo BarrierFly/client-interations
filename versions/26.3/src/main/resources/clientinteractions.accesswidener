@@ -1,0 +1,20 @@
+accessWidener	v2	official
+
+# Client Interactions needs a small, stable set of internals:
+#
+#  * Minecraft#startAttack()/startUseItem(): the exact code paths the vanilla client runs for a
+#    left/right click. Calling them keeps every vanilla restriction in force (attack cooldown,
+#    "missed swing" penalty, four tick use delay, "hands busy", "already using an item",
+#    spectator mode, disabled items, ...).
+#  * Minecraft#rightClickDelay: read only, so the use channel can honour the vanilla delay while a
+#    screen is open (the vanilla loop skips input handling in that state).
+#  * Minecraft#missTime: read and cleared only to drop the 10000 tick sentinel that vanilla sets
+#    while a screen is open, so a forced hold does not stay inert for 500 seconds afterwards.
+#  * KeyMapping#isDown: written directly for holds. KeyMapping#set cannot be used because on 1.21.10+
+#    the attack/use keys are ToggleKeyMapping, whose setDown toggles instead of assigning.
+
+accessible	method	net/minecraft/client/Minecraft	startAttack	()Z
+accessible	method	net/minecraft/client/Minecraft	startUseItem	()V
+accessible	field	net/minecraft/client/Minecraft	rightClickDelay	I
+accessible	field	net/minecraft/client/Minecraft	missTime	I
+accessible	field	net/minecraft/client/KeyMapping	isDown	Z

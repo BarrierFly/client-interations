@@ -1,0 +1,23 @@
+pluginManagement {
+    repositories {
+        maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
+        maven { name = 'TerraformersMC'; url = 'https://maven.terraformersmc.com/releases/' }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+rootProject.name = 'client-interactions'
+
+// Pure Java logic shared by every Minecraft target, plus its unit tests.
+include 'common'
+
+// One subproject per supported Minecraft version. Every subproject compiles the shared,
+// version independent sources from common/src/main/java directly into its own jar, so the
+// released file has no nested jars and no extra dependencies.
+include 'versions:1.19.4'
+include 'versions:1.20.1'
+include 'versions:1.21.1'
+include 'versions:1.21.10'
+include 'versions:1.21.11'
+include 'versions:26.3'

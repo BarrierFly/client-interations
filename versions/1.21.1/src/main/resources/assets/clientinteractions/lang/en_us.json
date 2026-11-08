@@ -1,0 +1,6 @@
+{
+  "key.categories.clientinteractions": "Client Interactions",
+  "key.clientinteractions.toggle_attack": "Toggle attack automation",
+  "key.clientinteractions.toggle_use": "Toggle use automation",
+  "key.clientinteractions.open_config": "Open Client Interactions config"
+}

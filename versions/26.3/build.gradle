@@ -1,0 +1,80 @@
+// Minecraft 26.3 target.
+//
+// 26.3 ships unobfuscated: the client jar already contains the real names, so there is no mapping
+// artifact to apply. Consequences:
+//   * the plugin is net.fabricmc.fabric-loom (not the -remap variant),
+//   * game and API dependencies are plain `implementation` instead of `modImplementation`,
+//   * the access widener declares the `official` namespace instead of `named`.
+plugins {
+    id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+base {
+    archivesName = "clientinteractions-${minecraft_version}"
+}
+
+def withGameTest = project.findProperty('gametest') == 'true'
+
+sourceSets {
+    main {
+        java {
+            srcDir rootProject.file('common/src/main/java')
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+    compileOnly "com.terraformersmc:modmenu:${modmenu_version}"
+}
+
+loom {
+    accessWidenerPath = file('src/main/resources/clientinteractions.accesswidener')
+
+    runs {
+        if (withGameTest) {
+            clientGameTest {
+                client()
+                name = 'Client Game Test'
+                vmArg '-Dfabric.client.gametest'
+                runDir 'run-gametest'
+            }
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = 'UTF-8'
+    it.options.release = project.java_release as int
+}
+
+java {
+    sourceCompatibility = JavaVersion.toVersion(project.java_release)
+    targetCompatibility = JavaVersion.toVersion(project.java_release)
+    withSourcesJar()
+}
+
+// Gradle runs on Java 25 and 26.3 itself also needs Java 25, so no launcher override is needed
+// here; the property is still read to keep every target script uniform.
+def gameJava = project.java_release as int
+
+processResources {
+    def props = [
+            'version'          : project.mod_version,
+            'minecraft_version': project.minecraft_version,
+            'loader_version'   : project.loader_version,
+    ]
+    inputs.properties(props)
+
+    filesMatching('fabric.mod.json') {
+        expand(props)
+    }
+}
+
+jar {
+    from(rootProject.file('LICENSE')) {
+        rename { "${it}_clientinteractions" }
+    }
+}

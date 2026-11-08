@@ -1,0 +1,43 @@
+// Root build script.
+//
+// Each Minecraft target lives in versions/<mc-version> and is built with the same, newest
+// Loom release so that a single Gradle invocation can produce a jar for every supported
+// Minecraft version. common/ holds the version independent logic and its unit tests.
+
+subprojects {
+    group = rootProject.maven_group
+    version = rootProject.mod_version
+
+    repositories {
+        mavenCentral()
+        maven {
+            name = 'Fabric'
+            url = 'https://maven.fabricmc.net/'
+        }
+        maven {
+            // Mod Menu
+            name = 'TerraformersMC'
+            url = 'https://maven.terraformersmc.com/releases/'
+        }
+    }
+}
+
+// One task per target, so the release jars can be collected in a single place.
+def versionProjects = subprojects.findAll { it.path.startsWith(':versions:') }
+
+tasks.register('collectJars', Copy) {
+    group = 'build'
+    description = 'Collects the packaged jar of every Minecraft target into build/libs.'
+
+    versionProjects.each { subproject ->
+        // 26.x ships unobfuscated, so Loom runs without a remap step there.
+        def packageTask = subproject.tasks.findByName('remapJar') != null ? 'remapJar' : 'jar'
+
+        dependsOn "${subproject.path}:${packageTask}"
+        // Reading the task output (instead of the whole libs directory) keeps this task correctly
+        // out of date whenever a jar is rebuilt.
+        from(subproject.tasks.named(packageTask).flatMap { it.archiveFile })
+    }
+
+    into rootProject.layout.buildDirectory.dir('libs')
+}
