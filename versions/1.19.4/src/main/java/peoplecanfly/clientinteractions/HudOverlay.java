@@ -31,7 +31,7 @@ public final class HudOverlay implements HudRenderCallback {
         int y = MARGIN;
 
         for (String line : lines) {
-            GuiComponent.drawString(poseStack, client.font, line, MARGIN, y, 0xFFE0B0);
+            GuiComponent.drawString(poseStack, client.font, line, MARGIN, y, 0xFFFFE0B0);
             y += LINE_HEIGHT;
         }
     }

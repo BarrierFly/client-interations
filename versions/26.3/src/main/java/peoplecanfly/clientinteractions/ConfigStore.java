@@ -10,19 +10,19 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.EnumMap;
-import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import peoplecanfly.clientinteractions.common.Feature;
 import peoplecanfly.clientinteractions.common.FeatureSettings;
+import peoplecanfly.clientinteractions.common.KeyCombo;
 import peoplecanfly.clientinteractions.common.ModConfig;
 
 /**
  * Reads and writes {@code config/clientinteractions.json}.
  *
- * <p>Every feature has its own block, so features are configured independently. Key bindings are
- * stored by their vanilla name string, which keeps the file portable between versions.</p>
+ * <p>Every feature has its own block, so features are configured independently. A hotkey is stored as
+ * the vanilla key name plus a modifier string such as {@code "ctrl+shift"}, which keeps the file
+ * readable and portable between versions.</p>
  */
 public final class ConfigStore {
     private static final Logger LOGGER = LoggerFactory.getLogger("ClientInteractions");
@@ -30,8 +30,6 @@ public final class ConfigStore {
     private static final String FILE_NAME = "clientinteractions.json";
 
     private final Path path;
-    /** Bound keys per feature, as vanilla key names, persisted alongside the numbers. */
-    private final Map<Feature, String> keys = new EnumMap<>(Feature.class);
 
     public ConfigStore(Path configDir) {
         this.path = configDir.resolve(FILE_NAME);
@@ -39,18 +37,6 @@ public final class ConfigStore {
 
     public Path path() {
         return this.path;
-    }
-
-    public String keyName(Feature feature) {
-        return this.keys.get(feature);
-    }
-
-    public void setKeyName(Feature feature, String name) {
-        if (name == null) {
-            this.keys.remove(feature);
-        } else {
-            this.keys.put(feature, name);
-        }
     }
 
     /** Loads the configuration, falling back to defaults for anything missing or invalid. */
@@ -85,7 +71,12 @@ public final class ConfigStore {
                 String key = getString(node, "key", null);
 
                 if (key != null && !key.isEmpty()) {
-                    this.keys.put(feature, key);
+                    String modifiers = getString(node, "modifiers", "");
+
+                    config.setKey(feature, KeyCombo.of(key,
+                            modifiers.contains("shift"),
+                            modifiers.contains("ctrl"),
+                            modifiers.contains("alt")));
                 }
             }
         } catch (Exception e) {
@@ -110,10 +101,29 @@ public final class ConfigStore {
             node.addProperty("perTick", settings.perTick());
             node.addProperty("burst", settings.burst());
 
-            String key = this.keys.get(feature);
+            KeyCombo combo = config.key(feature);
 
-            if (key != null) {
-                node.addProperty("key", key);
+            if (combo.isBound()) {
+                node.addProperty("key", combo.keyName());
+
+                if (combo.hasModifiers()) {
+                    StringBuilder modifiers = new StringBuilder();
+
+                    if (combo.hasControl()) {
+                        modifiers.append("ctrl+");
+                    }
+
+                    if (combo.hasShift()) {
+                        modifiers.append("shift+");
+                    }
+
+                    if (combo.hasAlt()) {
+                        modifiers.append("alt+");
+                    }
+
+                    // Trailing '+' would read back as an extra empty token, so it is dropped.
+                    node.addProperty("modifiers", modifiers.substring(0, modifiers.length() - 1));
+                }
             }
 
             root.add(feature.id(), node);

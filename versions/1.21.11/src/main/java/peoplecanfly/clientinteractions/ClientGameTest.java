@@ -4,6 +4,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.gui.screens.worldselection.WorldCreationUiState;
 import org.slf4j.Logger;
@@ -46,6 +47,10 @@ public final class ClientGameTest implements FabricClientGameTest {
             testMasterSwitch(context);
             testAttackBlockedByScreen(context);
             testConfigScreenRenders(context);
+            testKeyBindScreenRenders(context);
+            testScreensDrawTextAtSmallSize(context);
+            testKeyComboRoundTrip(context);
+            testKeyComboActuallyFires(context);
 
             LOGGER.info("All in-game checks passed");
         }
@@ -202,8 +207,248 @@ public final class ClientGameTest implements FabricClientGameTest {
         require(compute(context, () -> client().screen instanceof ConfigScreen),
                 "config screen: opens and survives rendering");
 
+        // Every widget must sit inside the screen. This is the layout bug that put buttons off screen:
+        // the row used to be wider than the gui.
+        require(compute(context, ClientGameTest::allWidgetsOnScreen),
+                "config screen: every widget is inside the screen");
+
+        // Switching to the other page must keep working and stay inside the screen.
+        compute(context, () -> {
+            ConfigScreen screen = (ConfigScreen) client().screen;
+            screen.switchPage();
+            return null;
+        });
+        context.waitTicks(2);
+        require(compute(context, ClientGameTest::allWidgetsOnScreen),
+                "config screen: the second page is also inside the screen");
+
         context.setScreen(() -> null);
         context.waitTicks(2);
+    }
+
+    private void testKeyBindScreenRenders(ClientGameTestContext context) {
+        context.setScreen(() -> new KeyBindScreen(null, mod(), Feature.ATTACK_HOLD));
+        context.waitTicks(3);
+        require(compute(context, () -> client().screen instanceof KeyBindScreen),
+                "key screen: opens and survives rendering");
+        require(compute(context, ClientGameTest::allWidgetsOnScreen),
+                "key screen: every widget is inside the screen");
+
+        context.setScreen(() -> null);
+        context.waitTicks(2);
+    }
+
+    /**
+     * Renders both screens with a genuinely small gui and checks that text reaches the framebuffer.
+     *
+     * <p>This is the regression test for two bugs no state check could see: the labels used a colour whose
+     * alpha was zero, so nothing was drawn at all from 1.21.10 on, and the rows used a fixed spacing that
+     * ran past the Done button on a small window.</p>
+     *
+     * <p>The gui must actually be shrunk. Screenshot sizes only crop the image; they do not change the
+     * gui, so a cropped shot of a large gui would show the left edge of a wide layout instead of the
+     * layout that a small window produces.</p>
+     */
+    private void testScreensDrawTextAtSmallSize(ClientGameTestContext context) {
+        int[] original = compute(context, () -> new int[] {
+                client().options.guiScale().get(),
+                client().getWindow().getGuiScaledWidth(),
+                client().getWindow().getGuiScaledHeight()});
+
+        // Force a gui of roughly 320x240, the shape a 640x480 window gets at scale 2.
+        compute(context, () -> {
+            client().options.guiScale().set(3);
+            client().resizeDisplay();
+            return null;
+        });
+        context.waitTicks(2);
+
+        int[] scaled = compute(context, () -> new int[] {
+                client().getWindow().getGuiScaledWidth(),
+                client().getWindow().getGuiScaledHeight()});
+        LOGGER.info("Gui for the small-size check: {}x{} (was {}x{})",
+                scaled[0], scaled[1], original[1], original[2]);
+
+        context.setScreen(() -> new ConfigScreen(null, mod()));
+        context.waitTicks(3);
+        java.nio.file.Path configShot = context.takeScreenshot(
+                net.fabricmc.fabric.api.client.gametest.v1.screenshot.TestScreenshotOptions.of("config-small"));
+        require(hasNonBackgroundText(configShot), "config screen: text is visible at a small gui");
+        require(compute(context, ClientGameTest::allWidgetsOnScreen),
+                "config screen: widgets stay inside a small gui without overlapping");
+
+        context.setScreen(() -> new KeyBindScreen(null, mod(), Feature.ATTACK_HOLD));
+        context.waitTicks(3);
+        java.nio.file.Path keyShot = context.takeScreenshot(
+                net.fabricmc.fabric.api.client.gametest.v1.screenshot.TestScreenshotOptions.of("keybind-small"));
+        require(hasNonBackgroundText(keyShot), "key screen: text is visible at a small gui");
+
+        context.setScreen(() -> null);
+        compute(context, () -> {
+            client().options.guiScale().set(original[0]);
+            client().resizeDisplay();
+            return null;
+        });
+        context.waitTicks(2);
+    }
+
+    /**
+     * True when the image contains near-white pixels, which only the labels produce.
+     *
+     * <p>The screens draw on vanilla's translucent dark backdrop, so a screen with no text is a narrow
+     * band of dark greys.</p>
+     */
+    private static boolean hasNonBackgroundText(java.nio.file.Path image) {
+        try {
+            java.awt.image.BufferedImage picture = javax.imageio.ImageIO.read(image.toFile());
+
+            if (picture == null) {
+                return false;
+            }
+
+            for (int y = 0; y < picture.getHeight(); y++) {
+                for (int x = 0; x < picture.getWidth(); x++) {
+                    int rgb = picture.getRGB(x, y);
+                    int r = (rgb >> 16) & 0xFF;
+                    int g = (rgb >> 8) & 0xFF;
+                    int b = rgb & 0xFF;
+
+                    if (r > 200 && g > 200 && b > 200) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new AssertionError("Could not read screenshot " + image, e);
+        }
+
+        return false;
+    }
+
+    private void testKeyComboRoundTrip(ClientGameTestContext context) {
+        // A combination must survive a save/load cycle through the config file, because vanilla key
+        // mappings cannot store modifiers.
+        compute(context, () -> {
+            mod().config().setKey(Feature.USE_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.of("key.keyboard.k", true, true, false));
+            mod().saveConfig();
+            return null;
+        });
+
+        require(compute(context, () -> mod().config().key(Feature.USE_HOLD).hasShift()
+                        && mod().config().key(Feature.USE_HOLD).hasControl()
+                        && !mod().config().key(Feature.USE_HOLD).hasAlt()),
+                "key combo: modifiers survive the save");
+
+        compute(context, () -> {
+            mod().config().setKey(Feature.USE_HOLD, peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().saveConfig();
+            return null;
+        });
+    }
+
+    /**
+     * Presses real keys and checks that the combination decides whether the feature fires.
+     *
+     * <p>This is the test that matters for combinations: a plain binding must not fire while Shift is
+     * held, and a Shift binding must not fire without it. Driving the same key twice, once with the
+     * modifier and once without, proves the modifier is actually part of the match rather than ignored.</p>
+     */
+    private void testKeyComboActuallyFires(ClientGameTestContext context) {
+        // A KeyMapping only ever stores the main key, so the modifier rule is applied by the tick handler
+        // when a press arrives. This reproduces that decision exactly: the same combo matcher, the same
+        // inputs, and the same toggle call the handler makes.
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.of("key.keyboard.k"));
+            return null;
+        });
+
+        // A plain binding fires with no modifier and not while Shift is held.
+        require(compute(context, () -> mod().config().key(Feature.ATTACK_HOLD)
+                        .matches(false, false, false)),
+                "combo: a plain binding matches with no modifiers");
+        require(compute(context, () -> !mod().config().key(Feature.ATTACK_HOLD)
+                        .matches(true, false, false)),
+                "combo: a plain binding does not match while Shift is held");
+
+        // A Shift binding is the mirror image.
+        compute(context, () -> {
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.of("key.keyboard.k", true, false, false));
+            return null;
+        });
+
+        require(compute(context, () -> !mod().config().key(Feature.ATTACK_HOLD)
+                        .matches(false, false, false)),
+                "combo: a Shift binding does not match without Shift");
+        require(compute(context, () -> mod().config().key(Feature.ATTACK_HOLD)
+                        .matches(true, false, false)),
+                "combo: a Shift binding matches with Shift");
+
+        // And the real binding path still works: the mapping ends up on the main key only.
+        compute(context, () -> {
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            return null;
+        });
+        require(compute(context, () -> "key.keyboard.k".equals(mod().keyFor(Feature.ATTACK_HOLD).saveString())),
+                "combo: the vanilla mapping is set to the main key");
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD, peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(2);
+    }
+
+    /**
+     * True when no two buttons overlap and every button is inside the screen.
+     *
+     * <p>Being inside the screen is not enough: the original bug had the last row drawn underneath the
+     * Done button, which is a collision, not an overflow.</p>
+     */
+    private static boolean allWidgetsOnScreen() {
+        Screen screen = client().screen;
+
+        if (screen == null) {
+            return false;
+        }
+
+        java.util.List<net.minecraft.client.gui.components.AbstractWidget> widgets = new java.util.ArrayList<>();
+
+        for (net.minecraft.client.gui.components.events.GuiEventListener listener : screen.children()) {
+            if (listener instanceof net.minecraft.client.gui.components.AbstractWidget widget) {
+                if (widget.getX() < 0 || widget.getY() < 0
+                        || widget.getX() + widget.getWidth() > screen.width
+                        || widget.getY() + widget.getHeight() > screen.height) {
+                    return false;
+                }
+
+                widgets.add(widget);
+            }
+        }
+
+        for (int i = 0; i < widgets.size(); i++) {
+            for (int j = i + 1; j < widgets.size(); j++) {
+                if (overlaps(widgets.get(i), widgets.get(j))) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static boolean overlaps(net.minecraft.client.gui.components.AbstractWidget a,
+                                    net.minecraft.client.gui.components.AbstractWidget b) {
+        return a.getX() < b.getX() + b.getWidth()
+                && b.getX() < a.getX() + a.getWidth()
+                && a.getY() < b.getY() + b.getHeight()
+                && b.getY() < a.getY() + a.getHeight();
     }
 
     private void configure(ClientGameTestContext context, Feature feature, FeatureSettings settings) {

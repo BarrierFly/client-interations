@@ -8,7 +8,6 @@ import java.util.Map;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
-
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -19,14 +18,18 @@ import org.slf4j.LoggerFactory;
 import peoplecanfly.clientinteractions.common.ActionChannel;
 import peoplecanfly.clientinteractions.common.AutomationEngine;
 import peoplecanfly.clientinteractions.common.Feature;
+import peoplecanfly.clientinteractions.common.KeyCombo;
 import peoplecanfly.clientinteractions.common.ModConfig;
 import peoplecanfly.clientinteractions.common.StatusText;
 
 /**
- * Client entry point: one key binding per feature, the engine, and the per-tick driver.
+ * Client entry point: the engine, one hotkey per feature, and the per-tick driver.
  *
- * <p>All ten features are registered as separate, unbound key bindings. Each feature keeps its own
- * on/off state, and switching one on switches off the other features of the same button.</p>
+ * <h2>Hotkeys</h2>
+ * <p>Vanilla {@code KeyMapping} holds a single key and cannot express {@code Shift+R}, so the mod uses it
+ * only to detect that the main key went down. The modifiers are matched separately against the
+ * {@link KeyCombo} stored in the config, which makes {@code R} and {@code Shift+R} distinct bindings and
+ * keeps a press from firing a feature whose combination does not match exactly.</p>
  */
 public final class ClientInteractionsClient implements ClientModInitializer {
     public static final String MOD_ID = "clientinteractions";
@@ -65,17 +68,31 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     }
 
     public void saveConfig() {
-        // Every save also records the current bindings, so a rebind survives a restart.
-        for (Feature feature : Feature.values()) {
-            KeyMapping key = this.featureKeys.get(feature);
-
-            if (key != null) {
-                this.configStore.setKeyName(feature, key.saveString());
-            }
-        }
-
         this.syncEngine();
         this.configStore.save(this.config);
+    }
+
+    /**
+     * Pushes one feature's combination into its vanilla key mapping.
+     *
+     * <p>Only the main key is written; the modifiers stay in the config, because vanilla has nowhere to
+     * put them.</p>
+     */
+    public void applyKeyBinding(Feature feature) {
+        KeyMapping mapping = this.featureKeys.get(feature);
+
+        if (mapping == null) {
+            return;
+        }
+
+        KeyCombo combo = this.config.key(feature);
+
+        if (!combo.isBound()) {
+            mapping.setKey(InputConstants.UNKNOWN);
+            return;
+        }
+
+        mapping.setKey(InputConstants.getKey(combo.keyName()));
     }
 
     /** Pushes the current settings into the engine, which keeps running while they change. */
@@ -133,14 +150,8 @@ public final class ClientInteractionsClient implements ClientModInitializer {
                 SDLScancode.SDL_SCANCODE_RIGHTBRACKET,
                 KeyMapping.Category.MISC));
 
-        // Restore the saved per-feature bindings. Vanilla only tracks its own defaults, so the mod
-        // keeps the binding strings in its own config file.
         for (Feature feature : Feature.values()) {
-            String saved = this.configStore.keyName(feature);
-
-            if (saved != null) {
-                this.featureKeys.get(feature).setKey(InputConstants.getKey(saved));
-            }
+            this.applyKeyBinding(feature);
         }
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> this.onClientTick());
@@ -157,11 +168,22 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             return;
         }
 
+        boolean shift = client.hasShiftDown();
+        boolean control = client.hasControlDown();
+        boolean alt = client.hasAltDown();
+
         for (Feature feature : Feature.values()) {
             KeyMapping key = this.featureKeys.get(feature);
 
             while (key != null && key.consumeClick()) {
-                this.toggleFeature(feature);
+                KeyCombo combo = this.config.key(feature);
+
+                // Reacting only to the main key, then checking the modifiers, is what makes Shift+R and
+                // R different bindings. A press whose modifiers do not match is ignored rather than
+                // toggling the wrong feature.
+                if (combo.matches(shift, control, alt)) {
+                    this.toggleFeature(feature);
+                }
             }
         }
 

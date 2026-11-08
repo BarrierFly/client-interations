@@ -44,7 +44,7 @@ public final class HudOverlay implements HudElement {
         int y = MARGIN;
 
         for (String line : lines) {
-            graphics.text(client.font, line, MARGIN, y, 0xFFE0B0);
+            graphics.text(client.font, line, MARGIN, y, 0xFFFFE0B0);
             y += LINE_HEIGHT;
         }
     }
