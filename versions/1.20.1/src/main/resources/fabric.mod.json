@@ -10,6 +10,7 @@
   "contact": {},
   "license": "Unlicense",
   "environment": "client",
+  "accessWidener": "clientinteractions.accesswidener",
   "entrypoints": {
     "client": [
       "peoplecanfly.clientinteractions.ClientInteractionsClient"

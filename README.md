@@ -3,8 +3,8 @@
 **English** | [中文](#中文说明)
 
 > **Reading guide**
-> This English section is 987 words (5 171 characters without spaces) and takes about 4 minutes.
-> The Chinese section is 2 963 characters and takes about 7 minutes, so both together are about
+> This English section is 1 045 words (5 496 characters without spaces) and takes about 4 minutes.
+> The Chinese section is 3 137 characters and takes about 7 minutes, so both together are about
 > 11 minutes. The full [`LICENSE`](LICENSE) is 1 212 characters (197 words, 24 lines).
 >
 > To use the mod, read **Usage** and **Modes**. The rest covers the vanilla limits, building and
@@ -112,6 +112,11 @@ JDK 25 runs Gradle. The game itself is launched with the Java version its Minecr
 `versions/<mc>/` compiles it directly into its jar, so releases are single jars with no nested
 jars. `26.3` is unobfuscated, so it uses no mappings and an `official` access widener.
 
+`build` also runs `verifyReleaseJar`, which checks the packaged jar rather than the development
+output: the jar must declare its access widener in `fabric.mod.json`, contain the file, and use the
+namespace the game runs with. Development runs hide this because Loom applies the widener to the
+classpath regardless of the declaration, so a missing declaration only fails for players.
+
 ## Tests
 
 * 28 unit tests on the timing engine (`./gradlew :common:test`): every mode, clamping, mode
@@ -156,7 +161,7 @@ issue if something is missing.
 **[English](#client-interactions)** | **中文**
 
 > **阅读指引**
-> 中文部分 2 963 字（不计空白），大约需要 7 分钟；英文部分 987 词（不计空格 5 171 字符），
+> 中文部分 3 137 字（不计空白），大约需要 7 分钟；英文部分 1 045 词（不计空格 5 496 字符），
 > 大约需要 4 分钟，两部分合计约 11 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符
 > （197 词、24 行）。
 >
@@ -257,6 +262,11 @@ Gradle 用 JDK 25 运行。游戏本身用其 Minecraft 版本所需的 Java 启
 `common/` 是与版本无关的计时引擎，不 import Minecraft。每个 `versions/<mc>/` 把它直接编译进
 自己的 jar，因此发布的是单个 jar，没有嵌套 jar。`26.3` 不混淆，所以不使用映射，access widener
 使用 `official` 命名空间。
+
+`build` 还会运行 `verifyReleaseJar`，检查的是打包后的 jar 而不是开发产物：jar 必须在
+`fabric.mod.json` 中声明 access widener、包含该文件，并使用游戏运行时所用的命名空间。开发环境
+会掩盖这个问题，因为 Loom 不论是否声明都会把 widener 应用到 classpath 上，所以漏声明只会在玩家
+那边失败。
 
 ## 测试
 

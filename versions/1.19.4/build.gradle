@@ -76,3 +76,62 @@ jar {
         rename { "${it}_clientinteractions" }
     }
 }
+
+// Verifies the packaged jar, not the development output.
+//
+// A defect shipped once because these differ: Loom applies the access widener to the development
+// classpath regardless of what fabric.mod.json says, so a jar that forgot to declare it worked in
+// runClient and threw IllegalAccessError (private field class_310.field_1752) for users. The jar
+// must declare the widener, contain the file, and use the namespace the game runs with.
+tasks.register('verifyReleaseJar') {
+    dependsOn 'remapJar'
+    group = 'verification'
+    description = 'Checks that the release jar declares a usable access widener.'
+
+    def jarTask = tasks.named('remapJar')
+    def expectedNamespace = project.minecraft_version.startsWith('26.') ? 'official' : 'intermediary'
+
+    doLast {
+        def jarFile = jarTask.get().archiveFile.get().asFile
+        def zip = new java.util.zip.ZipFile(jarFile)
+
+        try {
+            def meta = zip.getEntry('fabric.mod.json')
+
+            if (meta == null) {
+                throw new GradleException("${jarFile.name} has no fabric.mod.json")
+            }
+
+            def text = zip.getInputStream(meta).getText('UTF-8')
+            def declared = (text =~ /"accessWidener"\s*:\s*"([^"]+)"/)
+
+            if (!declared.find()) {
+                throw new GradleException(
+                        "${jarFile.name} does not declare accessWidener in fabric.mod.json; "
+                                + 'every widened Minecraft member would throw IllegalAccessError at runtime')
+            }
+
+            def awName = declared.group(1)
+            def awEntry = zip.getEntry(awName)
+
+            if (awEntry == null) {
+                throw new GradleException("${jarFile.name} declares ${awName} but the file is missing")
+            }
+
+            def header = zip.getInputStream(awEntry).getText('UTF-8').readLines().first().trim()
+            def namespace = header.split('\\s+')[2]
+
+            if (namespace != expectedNamespace) {
+                throw new GradleException(
+                        "${jarFile.name}: access widener namespace is ${namespace} but the game runs "
+                                + "with ${expectedNamespace} for Minecraft ${project.minecraft_version}")
+            }
+        } finally {
+            zip.close()
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'verifyReleaseJar'
+}
