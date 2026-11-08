@@ -134,7 +134,10 @@ public final class ConfigScreen extends Screen {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
-        this.renderBackground(graphics, mouseX, mouseY, delta);
+        // The caller draws the background before invoking render on this version, and Screen#render
+        // only draws widgets. Calling renderBackground here would blur twice in one frame and crash.
+        super.render(graphics, mouseX, mouseY, delta);
+
         graphics.drawCenteredString(this.font, this.title, this.width / 2, 12, 0xFFFFFF);
 
         int y = 24;
@@ -146,8 +149,6 @@ public final class ConfigScreen extends Screen {
                     20, y, 0xA0A0A0);
             y += 10;
         }
-
-        super.render(graphics, mouseX, mouseY, delta);
     }
 
     @Override

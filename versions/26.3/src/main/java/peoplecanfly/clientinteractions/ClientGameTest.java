@@ -42,6 +42,7 @@ public final class ClientGameTest implements FabricClientGameTest {
             testPeriodicBurst(context);
             testMasterSwitch(context);
             testAttackBlockedByScreen(context);
+            testConfigScreenRenders(context);
 
             LOGGER.info("All in-game checks passed");
         }
@@ -155,6 +156,25 @@ public final class ClientGameTest implements FabricClientGameTest {
         context.setScreen(() -> null);
         context.waitTicks(2);
     }
+
+    /**
+     * Renders the mod's own config screen for several frames.
+     *
+     * <p>This guards against a regression that shipped once: calling {@code renderBackground} manually
+     * blurred twice in one frame and crashed with "Can only blur once per frame" as soon as the screen
+     * was opened. Rendering the screen inside the test catches that immediately.</p>
+     */
+    private void testConfigScreenRenders(ClientGameTestContext context) {
+        context.setScreen(() -> new ConfigScreen(null, mod()));
+        // Several frames, because the blur limit is per frame and a single frame may be cached.
+        context.waitTicks(3);
+        require(compute(context, () -> client().gui.screen() instanceof ConfigScreen),
+                "config screen: it opens and survives rendering");
+
+        context.setScreen(() -> null);
+        context.waitTicks(2);
+    }
+
     private void configure(ClientGameTestContext context, ActionChannel channel,
                            AutomationMode mode, ChannelSettings settings) {
         compute(context, () -> {

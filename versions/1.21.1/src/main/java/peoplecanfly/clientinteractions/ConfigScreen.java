@@ -13,8 +13,12 @@ import peoplecanfly.clientinteractions.common.StatusText;
 /**
  * The in-game configuration screen.
  *
- * <p>A plain vanilla screen, so that no extra library ships with the mod and the same layout can be
+ * <p>A plain vanilla screen, so no extra library ships with the mod and the same layout can be
  * reproduced on every supported Minecraft version.</p>
+ *
+ * <p>From 1.21.1 on, {@code Screen#render} draws the background itself before the widgets, so this
+ * class must not draw it again: doing so would run the background blur twice in one frame and crash
+ * with {@code Can only blur once per frame}.</p>
  */
 public final class ConfigScreen extends Screen {
     private static final int ROW_HEIGHT = 24;
@@ -134,7 +138,11 @@ public final class ConfigScreen extends Screen {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
-        this.renderBackground(graphics, mouseX, mouseY, delta);
+        // Screen#render draws the background itself on this version, so calling renderBackground here
+        // would blur twice in one frame and crash. Let super draw background and widgets, then draw
+        // the status text on top; it sits above the widgets so nothing overlaps.
+        super.render(graphics, mouseX, mouseY, delta);
+
         graphics.drawCenteredString(this.font, this.title, this.width / 2, 12, 0xFFFFFF);
 
         int y = 24;
@@ -146,8 +154,6 @@ public final class ConfigScreen extends Screen {
                     20, y, 0xA0A0A0);
             y += 10;
         }
-
-        super.render(graphics, mouseX, mouseY, delta);
     }
 
     @Override
