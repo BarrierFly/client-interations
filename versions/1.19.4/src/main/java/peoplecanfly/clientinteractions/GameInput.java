@@ -123,10 +123,21 @@ public final class GameInput {
         }
     }
 
-    /** Releases a channel: drops the forced hold and stops any item use it started. */
+    /**
+     * Releases a channel: drops the forced hold and stops any item use it started.
+     *
+     * <p>The key flag is only cleared while the mod actually holds it. Two things depend on that: a
+     * release must never clear a physically held mouse button, and it must not touch the client
+     * options before they exist - the client entrypoint runs from inside the {@code Minecraft}
+     * constructor, which creates {@code options} only afterwards.</p>
+     */
     public void release(ActionChannel channel) {
+        boolean held = this.owned[channel.ordinal()];
         this.owned[channel.ordinal()] = false;
-        this.setKeyDown(channel, false);
+
+        if (held) {
+            this.setKeyDown(channel, false);
+        }
 
         if (channel == ActionChannel.USE) {
             LocalPlayer player = this.client.player;
@@ -140,6 +151,12 @@ public final class GameInput {
 
     /** Sets or clears the {@code isDown} flag of the vanilla key mapping driven by a channel. */
     private void setKeyDown(ActionChannel channel, boolean down) {
+        if (this.client.options == null) {
+            // The client entrypoint runs before the Minecraft constructor has created the options, so a
+            // key flag cannot be written yet. Writing one is meaningless that early anyway.
+            return;
+        }
+
         KeyMapping mapping = channel == ActionChannel.ATTACK
                 ? this.client.options.keyAttack
                 : this.client.options.keyUse;

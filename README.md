@@ -3,8 +3,8 @@
 **English** | [中文](#中文说明)
 
 > **Reading guide**
-> This English section is 1 068 words (5 644 characters without spaces) and takes about 4 minutes.
-> The Chinese section is 3 202 characters and takes about 7 minutes. The full [`LICENSE`](LICENSE) is
+> This English section is 1 116 words (5 901 characters without spaces) and takes about 4 minutes.
+> The Chinese section is 3 320 characters and takes about 7 minutes. The full [`LICENSE`](LICENSE) is
 > 1 212 characters (197 words).
 
 A client-side Fabric mod with ten independent automation features for Minecraft's two mouse buttons,
@@ -116,8 +116,8 @@ classpath regardless of the declaration.
 
 ## Tests
 
-* 26 unit tests on the engine: every behaviour, clamping, mutual exclusion per button, channel
-  independence, the master switch and a 7000 tick drift check.
+* 27 unit tests on the engine: every behaviour, clamping, mutual exclusion per button, channel
+  independence, the master switch, starting with the master switch off, and a 7000 tick drift check.
 * 1.21.10, 1.21.11 and 26.3 have in-game tests that boot a real client, create a world, and assert
   holds, clicks, one-tick-per-tick timing, mutual exclusion, the master switch, screen behaviour and
   that the config screen renders.
@@ -131,6 +131,9 @@ classpath regardless of the declaration.
 * **Stops when I open my inventory** - expected for attack; see above.
 * **Slower than configured** - vanilla is dropping the extra actions; see Vanilla limits.
 * **Wrong version error** - the jar does not match your game version.
+* **Game crashes while starting, only after turning Automation off** - fixed in this build. The switch
+  state is saved, and starting with it off used to crash the client before the window appeared. If an
+  older build does this, delete `config/clientinteractions.json`.
 
 ## Credits
 
@@ -157,7 +160,7 @@ if something is missing.
 **[English](#client-interactions)** | **中文**
 
 > **阅读指引**
-> 中文部分 3 202 字（不计空白），大约需要 7 分钟；英文部分 1 068 词（不计空格 5 644 字符），
+> 中文部分 3 320 字（不计空白），大约需要 7 分钟；英文部分 1 116 词（不计空格 5 901 字符），
 > 大约需要 4 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
 
 一个客户端 Fabric 模组，为 Minecraft 的两个鼠标键——**攻击**（左键）与**使用**（右键）——提供
@@ -263,8 +266,8 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 
 ## 测试
 
-* 引擎上的 26 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关，以及 7000 刻的
-  漂移检查。
+* 引擎上的 27 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动，以及
+  7000 刻的漂移检查。
 * 1.21.10、1.21.11、26.3 有游戏内测试：启动真实客户端、创建世界，断言长按、点击、每刻一步的
   计时、互斥、总开关、界面行为，以及配置界面能否正常渲染。
 * 1.19.4、1.20.1、1.21.1 没有客户端 gametest API，通过编译、打包和启动游戏验证。
@@ -276,6 +279,8 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 * **打开背包后停了** — 攻击功能的预期行为，见上文。
 * **比设定值慢** — 原版丢弃了多余动作，见「原版限制」。
 * **版本不匹配** — jar 与游戏版本不对应。
+* **关掉「自动化」后游戏下次启动崩溃** — 本版本已修复。该开关状态会被保存，而旧版本在关闭状态下
+  启动会在窗口出现前崩溃。如果旧版本出现此问题，删除 `config/clientinteractions.json` 即可。
 
 ## 致谢
 

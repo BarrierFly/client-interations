@@ -33,6 +33,11 @@ public final class ClientGameTest implements FabricClientGameTest {
             require(compute(context, () -> ClientInteractionsClient.get() != null), "mod initialised");
             require(compute(context, () -> allFeaturesOff()), "every feature starts off");
 
+            // The config file is user data: it may have been saved with the master switch off, and
+            // starting in that state is exactly what used to crash the client entrypoint. Turn the
+            // switch back on here so the behavioural checks below are not at the mercy of that file.
+            require(compute(context, () -> masterSwitchOn()), "master switch can be turned back on");
+
             testHold(context, Feature.ATTACK_HOLD);
             testFastClick(context);
             testPeriodicHold(context);
@@ -44,6 +49,12 @@ public final class ClientGameTest implements FabricClientGameTest {
 
             LOGGER.info("All in-game checks passed");
         }
+    }
+
+    private static boolean masterSwitchOn() {
+        ClientInteractionsClient mod = ClientInteractionsClient.get();
+        mod.setGameEnabled(true);
+        return mod.config().isEnabled();
     }
 
     private static boolean allFeaturesOff() {

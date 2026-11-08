@@ -55,13 +55,21 @@ public final class AutomationEngine {
         return this.enabled;
     }
 
-    /** Master switch: turning it off releases the buttons but keeps every timer running. */
+    /**
+     * Master switch: turning it off releases the buttons but keeps every timer running.
+     *
+     * <p>Only channels with a running feature are released. Releasing an idle channel is meaningless, and
+     * it used to be harmful: this runs during client initialisation, where touching the vanilla key
+     * mappings is not possible yet.</p>
+     */
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
 
         if (!enabled) {
             for (ActionChannel channel : ActionChannel.values()) {
-                this.host.release(channel);
+                if (this.activeFeature(channel) != null) {
+                    this.host.release(channel);
+                }
             }
         }
     }

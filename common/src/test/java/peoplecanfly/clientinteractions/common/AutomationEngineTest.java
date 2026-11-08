@@ -176,6 +176,21 @@ class AutomationEngineTest {
     }
 
     @Test
+    @DisplayName("disabling the master switch on startup releases nothing")
+    void disablingBeforeAnythingRunsReleasesNothing() {
+        RecordingHost host = new RecordingHost();
+        AutomationEngine engine = engine(host);
+
+        engine.setEnabled(false);
+
+        assertEquals(0, host.events.size(),
+                "no feature is running yet, so nothing may be released");
+
+        engine.setEnabled(true);
+        assertEquals(0, host.events.size());
+    }
+
+    @Test
     @DisplayName("stopAll and stopChannel stop what they should")
     void stoppingGroups() {
         AutomationEngine engine = engine(new RecordingHost());

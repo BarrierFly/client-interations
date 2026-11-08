@@ -37,6 +37,9 @@ public final class GameInput {
 
     private final Minecraft client;
 
+    /** Whether the mod, rather than the player, is currently holding a channel down. */
+    private final boolean[] owned = new boolean[ActionChannel.values().length];
+
     public GameInput(Minecraft client) {
         this.client = client;
     }
@@ -68,7 +71,7 @@ public final class GameInput {
     }
 
     private void applyAttack(int clicks, boolean hold) {
-        this.setKeyDown(ActionChannel.ATTACK, hold);
+        this.setKeyOwned(ActionChannel.ATTACK, hold);
 
         if (hold && this.client.missTime >= SCREEN_MISS_TIME) {
             // A forced hold must not inherit the sentinel vanilla sets while a screen is open, otherwise
@@ -87,7 +90,7 @@ public final class GameInput {
     }
 
     private void applyUse(int clicks, boolean hold) {
-        this.setKeyDown(ActionChannel.USE, hold);
+        this.setKeyOwned(ActionChannel.USE, hold);
 
         if (hold && !this.vanillaInputActive()) {
             LocalPlayer player = this.client.player;
@@ -102,9 +105,14 @@ public final class GameInput {
         }
     }
 
-    /** Releases a channel: drops the forced hold and stops any item use it started. */
+    /**
+     * Releases a channel: drops the forced hold and stops any item use it started.
+     *
+     * <p>The key flag is only cleared while the mod actually holds it, so a release can never clear a
+     * physically held mouse button.</p>
+     */
     public void release(ActionChannel channel) {
-        this.setKeyDown(channel, false);
+        this.setKeyOwned(channel, false);
 
         if (channel == ActionChannel.USE) {
             LocalPlayer player = this.client.player;
@@ -115,8 +123,24 @@ public final class GameInput {
         }
     }
 
+    /** Records whether the mod owns a channel and writes the key flag only when that changes. */
+    private void setKeyOwned(ActionChannel channel, boolean down) {
+        if (this.owned[channel.ordinal()] == down) {
+            return;
+        }
+
+        this.owned[channel.ordinal()] = down;
+        this.setKeyDown(channel, down);
+    }
+
     /** Sets or clears the {@code isDown} flag of the vanilla key mapping driven by a channel. */
     private void setKeyDown(ActionChannel channel, boolean down) {
+        if (this.client.options == null) {
+            // The client entrypoint runs before the Minecraft constructor has created the options, so a
+            // key flag cannot be written yet. Writing one is meaningless that early anyway.
+            return;
+        }
+
         KeyMapping mapping = channel == ActionChannel.ATTACK
                 ? this.client.options.keyAttack
                 : this.client.options.keyUse;
@@ -128,6 +152,11 @@ public final class GameInput {
 
     /** True when the vanilla client would process key bindings on this tick. */
     private boolean vanillaInputActive() {
+        if (this.client.gui == null) {
+            // The client entrypoint runs before the gui exists, so nothing can be open yet.
+            return true;
+        }
+
         return this.client.gui.screen() == null && this.client.gui.overlay() == null;
     }
 }
