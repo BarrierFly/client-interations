@@ -27,7 +27,7 @@ import peoplecanfly.clientinteractions.common.StatusText;
  * the Done button.</p>
  *
  * <pre>
- *   name ......... key ....... interval[x] perTick[x]
+ *   name ......... key ....... [every][clicks]
  * </pre>
  *
  * <h2>Numbers are typed, not cycled</h2>
@@ -211,8 +211,8 @@ public final class ConfigScreen extends Screen {
         box.setMaxLength(3);
         box.setValue(Integer.toString(field.get(this.mod.config().settings(feature))));
 
-        // 26.x has no text filter on EditBox, so non-digits are rejected inside the responder instead:
-        // the text is put back to the last accepted value when it is not a number.
+        // 26.x has no text filter on EditBox, so a non-digit is rejected inside the responder and the
+        // field is put back to the last accepted value.
         box.setResponder(text -> this.commit(feature, field, text, box));
 
         this.addRenderableWidget(box);
@@ -324,11 +324,10 @@ public final class ConfigScreen extends Screen {
     private enum ValueField {
         INTERVAL("Interval", "every", FeatureSettings.MIN_INTERVAL, FeatureSettings.MAX_INTERVAL),
         DURATION("Hold", "hold", FeatureSettings.MIN_DURATION, FeatureSettings.MAX_DURATION),
-        PER_TICK("Per tick", "x/t", FeatureSettings.MIN_PER_TICK, FeatureSettings.MAX_PER_TICK),
-        BURST("Burst", "burst", FeatureSettings.MIN_BURST, FeatureSettings.MAX_BURST);
+        COUNT("Clicks", "clicks", FeatureSettings.MIN_COUNT, FeatureSettings.MAX_COUNT);
 
         private final String label;
-        /** The compact label drawn above the field, where a full word would not fit. */
+        /** The compact label drawn beside the field, where a full word would not fit. */
         private final String shortLabel;
         private final int min;
         private final int max;
@@ -343,13 +342,12 @@ public final class ConfigScreen extends Screen {
         static ValueField[] forShape(Feature.Shape shape) {
             switch (shape) {
                 case FAST_CLICK:
-                    return new ValueField[] {PER_TICK};
+                    // "Clicks" here means how many clicks one of the player's clicks becomes.
+                    return new ValueField[] {COUNT};
                 case PERIODIC_CLICK:
-                    return new ValueField[] {INTERVAL, PER_TICK};
+                    return new ValueField[] {INTERVAL, COUNT};
                 case PERIODIC_HOLD:
                     return new ValueField[] {INTERVAL, DURATION};
-                case PERIODIC_BURST:
-                    return new ValueField[] {INTERVAL, BURST};
                 default:
                     return new ValueField[0];
             }
@@ -361,10 +359,8 @@ public final class ConfigScreen extends Screen {
                     return settings.interval();
                 case DURATION:
                     return settings.duration();
-                case PER_TICK:
-                    return settings.perTick();
-                case BURST:
-                    return settings.burst();
+                case COUNT:
+                    return settings.count();
                 default:
                     return 0;
             }
@@ -379,10 +375,8 @@ public final class ConfigScreen extends Screen {
                     return settings.withInterval(clamped);
                 case DURATION:
                     return settings.withDuration(clamped);
-                case PER_TICK:
-                    return settings.withPerTick(clamped);
-                case BURST:
-                    return settings.withBurst(clamped);
+                case COUNT:
+                    return settings.withCount(clamped);
                 default:
                     return settings;
             }

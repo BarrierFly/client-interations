@@ -1,36 +1,37 @@
 package peoplecanfly.clientinteractions.common;
 
 /**
- * The ten independently switchable features: five behaviours for each of the two buttons.
+ * The eight independently switchable features: four behaviours for each of the two buttons.
  *
  * <p>Each feature is configured and toggled on its own. Only one feature per {@link ActionChannel}
- * may be active at a time; see {@link FeatureState#activate}.</p>
+ * may be active at a time; see {@link AutomationEngine#activate}.</p>
  */
 public enum Feature {
     ATTACK_HOLD(ActionChannel.ATTACK, "attack_hold", "Attack: Hold"),
     ATTACK_FAST_CLICK(ActionChannel.ATTACK, "attack_fast_click", "Attack: Fast click"),
     ATTACK_PERIODIC_CLICK(ActionChannel.ATTACK, "attack_periodic_click", "Attack: Periodic click"),
     ATTACK_PERIODIC_HOLD(ActionChannel.ATTACK, "attack_periodic_hold", "Attack: Periodic hold"),
-    ATTACK_PERIODIC_BURST(ActionChannel.ATTACK, "attack_periodic_burst", "Attack: Periodic burst"),
 
     USE_HOLD(ActionChannel.USE, "use_hold", "Use: Hold"),
     USE_FAST_CLICK(ActionChannel.USE, "use_fast_click", "Use: Fast click"),
     USE_PERIODIC_CLICK(ActionChannel.USE, "use_periodic_click", "Use: Periodic click"),
-    USE_PERIODIC_HOLD(ActionChannel.USE, "use_periodic_hold", "Use: Periodic hold"),
-    USE_PERIODIC_BURST(ActionChannel.USE, "use_periodic_burst", "Use: Periodic burst");
+    USE_PERIODIC_HOLD(ActionChannel.USE, "use_periodic_hold", "Use: Periodic hold");
 
     /** The behaviour a feature implements; several features share one shape. */
     public enum Shape {
-        /** Keep the button pressed until switched off. */
+        /** Keeps the button pressed until switched off. Runs on its own. */
         HOLD,
-        /** Clicks {@code perTick} times every tick. */
+        /**
+         * Multiplies the player's own clicks.
+         *
+         * <p>This is the one shape that does not act by itself: it only fires when the player makes the
+         * corresponding mouse click, and turns one physical click into {@code count} clicks.</p>
+         */
         FAST_CLICK,
-        /** Clicks once every {@code interval} ticks. */
+        /** Clicks {@code count} times every {@code interval} ticks, on its own. */
         PERIODIC_CLICK,
-        /** Holds for {@code duration} ticks every {@code interval} ticks. */
-        PERIODIC_HOLD,
-        /** Clicks once per tick for {@code burst} ticks every {@code interval} ticks. */
-        PERIODIC_BURST
+        /** Holds for {@code duration} ticks every {@code interval} ticks, on its own. */
+        PERIODIC_HOLD
     }
 
     private final ActionChannel channel;
@@ -54,10 +55,6 @@ public enum Feature {
 
         if (id.endsWith("_periodic_click")) {
             return Shape.PERIODIC_CLICK;
-        }
-
-        if (id.endsWith("_periodic_burst")) {
-            return Shape.PERIODIC_BURST;
         }
 
         if (id.endsWith("_fast_click")) {
@@ -89,6 +86,11 @@ public enum Feature {
         return this.shape;
     }
 
+    /** True when the feature acts by itself, rather than reacting to the player's own clicks. */
+    public boolean actsOnItsOwn() {
+        return this.shape != Shape.FAST_CLICK;
+    }
+
     /** The key binding name, e.g. {@code key.clientinteractions.attack_hold}. */
     public String keyBindingName() {
         return "key.clientinteractions." + this.id;
@@ -108,5 +110,16 @@ public enum Feature {
         return java.util.Arrays.stream(values())
                 .filter(feature -> feature.channel == channel)
                 .toArray(Feature[]::new);
+    }
+
+    /** The fast-click feature of a channel, or {@code null} if there is none. */
+    public static Feature fastClickFor(ActionChannel channel) {
+        for (Feature feature : values()) {
+            if (feature.channel == channel && feature.shape == Shape.FAST_CLICK) {
+                return feature;
+            }
+        }
+
+        return null;
     }
 }

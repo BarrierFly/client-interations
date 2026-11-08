@@ -7,6 +7,10 @@ package peoplecanfly.clientinteractions.common;
  * {@link #tick(Feature, FeatureSettings)}. No Minecraft types, so every timing rule is unit tested.</p>
  *
  * <p>Intervals and durations are in client ticks (1 tick = 50 ms at 20 TPS).</p>
+ *
+ * <p>{@link Feature.Shape#FAST_CLICK} is the exception: it never produces a click from here, because it
+ * multiplies the player's own clicks rather than acting on its own. See
+ * {@link #fastClickCount(Feature, FeatureSettings)}.</p>
  */
 public final class FeatureScheduler {
     /** Ticks elapsed since activation. */
@@ -37,7 +41,7 @@ public final class FeatureScheduler {
         return this.elapsed;
     }
 
-    /** Advances one client tick and returns what the feature should do. */
+    /** Advances one client tick and returns what the feature should do by itself. */
     public TickAction tick(Feature feature, FeatureSettings settings) {
         if (!this.active) {
             return TickAction.none();
@@ -52,29 +56,47 @@ public final class FeatureScheduler {
         return releases ? TickAction.of(action.clicks(), action.hold(), true) : action;
     }
 
+    /**
+     * How many clicks one of the player's own clicks should become, for a fast-click feature.
+     *
+     * <p>Returns {@code 0} when the feature is off, so the caller can leave the player's click alone, and
+     * {@code settings.count()} when it is on. That is the whole behaviour: fast click is a multiplier for
+     * the player, not an independent source of clicks.</p>
+     */
+    public int fastClickCount(Feature feature, FeatureSettings settings) {
+        if (!this.active || feature.shape() != Feature.Shape.FAST_CLICK) {
+            return 0;
+        }
+
+        return settings.count();
+    }
+
     private TickAction compute(Feature.Shape shape, FeatureSettings settings) {
         switch (shape) {
             case HOLD:
                 return TickAction.hold(true);
 
             case FAST_CLICK:
-                return TickAction.clicks(settings.perTick());
+                // Never acts on its own; the player's click is what triggers it.
+                return TickAction.none();
 
             case PERIODIC_CLICK: {
                 int interval = settings.interval();
-                return this.elapsed % interval == 0 ? TickAction.clicks(settings.perTick()) : TickAction.none();
+
+                // The clicks are spread one per tick so each one is a real, separate attack. Firing them
+                // all in a single tick would not work: vanilla resets the attack strength on the first
+                // click, so the rest of the burst would be swallowed.
+                int count = Math.min(settings.count(), interval);
+
+                return this.elapsed % interval < count
+                        ? TickAction.clicks(1)
+                        : TickAction.none();
             }
 
             case PERIODIC_HOLD: {
                 int interval = settings.interval();
                 int duration = FeatureSettings.clampDuration(settings.duration(), interval);
                 return TickAction.hold(this.elapsed % interval < duration);
-            }
-
-            case PERIODIC_BURST: {
-                int interval = settings.interval();
-                int burst = Math.min(settings.burst(), interval);
-                return this.elapsed % interval < burst ? TickAction.clicks(1) : TickAction.none();
             }
 
             default:

@@ -42,7 +42,7 @@ class AutomationEngineTest {
     private static AutomationEngine engine(RecordingHost host) {
         AutomationEngine engine = new AutomationEngine(host);
         for (Feature feature : Feature.values()) {
-            engine.setSettings(feature, new FeatureSettings(20, 10, 1, 3));
+            engine.setSettings(feature, new FeatureSettings(20, 10, 3));
         }
         return engine;
     }
@@ -136,16 +136,63 @@ class AutomationEngineTest {
     void tickingOnlyAdvancesActiveFeatures() {
         RecordingHost host = new RecordingHost();
         AutomationEngine engine = engine(host);
-        engine.activate(Feature.ATTACK_FAST_CLICK);
+        engine.activate(Feature.ATTACK_PERIODIC_CLICK);
         host.events.clear();
 
         engine.tick();
         engine.tick();
         engine.tick();
 
+        // Three clicks over three ticks, not three in one tick.
         assertEquals(3, host.count("attack:click1"));
-        assertEquals(3, engine.scheduler(Feature.ATTACK_FAST_CLICK).elapsedTicks());
+        assertEquals(3, engine.scheduler(Feature.ATTACK_PERIODIC_CLICK).elapsedTicks());
         assertEquals(0, engine.scheduler(Feature.ATTACK_HOLD).elapsedTicks());
+    }
+
+    @Test
+    @DisplayName("fast click produces no input of its own while ticking")
+    void fastClickEmitsNothingOnTick() {
+        RecordingHost host = new RecordingHost();
+        AutomationEngine engine = engine(host);
+        engine.activate(Feature.ATTACK_FAST_CLICK);
+        host.events.clear();
+
+        for (int i = 0; i < 10; i++) {
+            engine.tick();
+        }
+
+        assertEquals(0, host.count("click"), "fast click must not click by itself");
+        assertEquals(0, host.count("hold"), "fast click must not hold");
+    }
+
+    @Test
+    @DisplayName("fast click multiplies the player's click and nothing else changes it")
+    void fastClickMultiplier() {
+        AutomationEngine engine = engine(new RecordingHost());
+
+        // Off: the player's click stays one click.
+        assertEquals(1, engine.playerClickCount(ActionChannel.ATTACK));
+        assertEquals(1, engine.playerClickCount(ActionChannel.USE));
+
+        engine.setSettings(Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 7));
+        engine.activate(Feature.ATTACK_FAST_CLICK);
+
+        assertEquals(7, engine.playerClickCount(ActionChannel.ATTACK));
+        // The other channel is unaffected by an attack feature.
+        assertEquals(1, engine.playerClickCount(ActionChannel.USE));
+    }
+
+    @Test
+    @DisplayName("the master switch also disables the fast-click multiplier")
+    void fastClickRespectsMasterSwitch() {
+        AutomationEngine engine = engine(new RecordingHost());
+        engine.setSettings(Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 5));
+        engine.activate(Feature.ATTACK_FAST_CLICK);
+
+        assertEquals(5, engine.playerClickCount(ActionChannel.ATTACK));
+
+        engine.setEnabled(false);
+        assertEquals(1, engine.playerClickCount(ActionChannel.ATTACK));
     }
 
     @Test
@@ -153,7 +200,7 @@ class AutomationEngineTest {
     void masterSwitchKeepsPhase() {
         RecordingHost host = new RecordingHost();
         AutomationEngine engine = engine(host);
-        engine.setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(4, 1, 1, 1));
+        engine.setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(4, 1, 1));
         engine.activate(Feature.ATTACK_PERIODIC_CLICK);
         engine.setEnabled(false);
         host.events.clear();
@@ -210,21 +257,21 @@ class AutomationEngineTest {
     void settingsAreLive() {
         RecordingHost host = new RecordingHost();
         AutomationEngine engine = engine(host);
-        engine.setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(10, 1, 1, 1));
+        engine.setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(10, 1, 1));
         engine.activate(Feature.ATTACK_PERIODIC_CLICK);
         host.events.clear();
 
         engine.tick();
-        engine.setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(1, 1, 2, 1));
+        engine.setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(1, 1, 2));
         engine.tick();
 
-        assertEquals(2, host.count("click"), "first tick clicked once, second tick clicked twice");
+        assertEquals(2, host.count("click"), "first tick clicked once, second tick clicked once more");
     }
 
     @Test
-    @DisplayName("all ten features exist and are named uniquely")
-    void tenFeatures() {
-        assertEquals(10, Feature.values().length);
+    @DisplayName("all eight features exist, four per button, with unique ids")
+    void eightFeatures() {
+        assertEquals(8, Feature.values().length);
 
         java.util.Set<String> ids = new java.util.HashSet<>();
         for (Feature feature : Feature.values()) {
@@ -232,7 +279,19 @@ class AutomationEngineTest {
             assertTrue(feature.keyBindingName().startsWith("key.clientinteractions."));
         }
 
-        assertEquals(5, Feature.forChannel(ActionChannel.ATTACK).length);
-        assertEquals(5, Feature.forChannel(ActionChannel.USE).length);
+        assertEquals(4, Feature.forChannel(ActionChannel.ATTACK).length);
+        assertEquals(4, Feature.forChannel(ActionChannel.USE).length);
+    }
+
+    @Test
+    @DisplayName("only fast click is a multiplier; every other feature acts by itself")
+    void onlyFastClickReactsToThePlayer() {
+        for (Feature feature : Feature.values()) {
+            if (feature.shape() == Feature.Shape.FAST_CLICK) {
+                assertFalse(feature.actsOnItsOwn(), feature.id());
+            } else {
+                assertTrue(feature.actsOnItsOwn(), feature.id());
+            }
+        }
     }
 }

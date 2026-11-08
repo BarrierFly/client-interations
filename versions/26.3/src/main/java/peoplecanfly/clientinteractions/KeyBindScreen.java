@@ -121,6 +121,21 @@ public final class KeyBindScreen extends Screen {
         return combo.display(KeyNames.readable(combo.keyName()));
     }
 
+    /**
+     * Reads the modifiers that were held when the key was pressed.
+     *
+     * <p>The event carries them as a bit mask. Polling the keyboard here instead would be wrong: vanilla
+     * queues key events to the main thread, so by the time this runs the user may already have released
+     * the modifier, and a combination would silently be captured as a plain key.</p>
+     */
+    private KeyCombo comboFor(String keyName, KeyEvent event) {
+        return KeyCombo.of(keyName,
+                event.hasShiftDown(),
+                event.hasControlDown(),
+                event.hasAltDown(),
+                this.modifiers().win());
+    }
+
     @Override
     public boolean keyPressed(KeyEvent event) {
         if (event.isEscape()) {
@@ -129,8 +144,17 @@ public final class KeyBindScreen extends Screen {
         }
 
         InputConstants.Key key = InputConstants.Type.KEYBOARD.getOrCreate(event.key());
+        String name = key.getName();
 
-        return this.capture(key.getName());
+        if (KeyNames.isModifier(name)) {
+            // A modifier alone is not a usable binding; say so rather than closing silently.
+            this.notice = KeyNames.readable(name) + " is a modifier - hold it and press another key";
+            this.rebuildWidgets();
+            return true;
+        }
+
+        this.apply(this.comboFor(name, event));
+        return true;
     }
 
     @Override
@@ -143,21 +167,11 @@ public final class KeyBindScreen extends Screen {
 
         InputConstants.Key key = InputConstants.Type.MOUSE.getOrCreate(event.button());
 
-        return this.capture(key.getName());
-    }
-
-    /** Stores a captured key name, or explains why it cannot be used. */
-    private boolean capture(String keyName) {
-        if (KeyNames.isModifier(keyName)) {
-            // A modifier alone is not a usable binding; say so rather than closing silently.
-            this.notice = KeyNames.readable(keyName) + " is a modifier - hold it and press another key";
-            this.rebuildWidgets();
-            return true;
-        }
-
-        Modifiers held = this.modifiers();
-
-        this.apply(KeyCombo.of(keyName, held.shift(), held.control(), held.alt(), held.win()));
+        this.apply(KeyCombo.of(key.getName(),
+                event.hasShiftDown(),
+                event.hasControlDown(),
+                event.hasAltDown(),
+                this.modifiers().win()));
         return true;
     }
 

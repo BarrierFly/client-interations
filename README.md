@@ -3,11 +3,11 @@
 **English** | [中文](#中文说明)
 
 > **Reading guide**
-> This English section is 1 359 words (7 077 characters without spaces) and takes about 6 minutes.
-> The Chinese section is 3 791 characters and takes about 8 minutes. The full [`LICENSE`](LICENSE) is
+> This English section is 1 528 words (7 830 characters without spaces) and takes about 6 minutes.
+> The Chinese section is 4 081 characters and takes about 8 minutes. The full [`LICENSE`](LICENSE) is
 > 1 212 characters (197 words).
 
-A client-side Fabric mod with ten independent automation features for Minecraft's two mouse buttons,
+A client-side Fabric mod with eight independent automation features for Minecraft's two mouse buttons,
 **attack** (left) and **use** (right). Each feature has its own switch, its own key binding and its own
 timing values.
 
@@ -26,20 +26,31 @@ Use `clientinteractions-<mc version>-1.0.0.jar`. Requires
 [Fabric API](https://modrinth.com/mod/fabric-api); [Mod Menu](https://modrinth.com/mod/modmenu) is
 optional and only adds the config button.
 
-## The ten features
+## The eight features
 
-Five behaviours for each button. Every feature is separate: it has its own switch, its own key binding
+Four behaviours for each button. Every feature is separate: it has its own switch, its own key binding
 (unbound by default) and its own numbers.
 
-| Feature | Behaviour | Values |
-|---------|-----------|--------|
-| Hold | Keeps the button pressed until switched off | none |
-| Fast click | `Per tick` clicks every tick | per tick |
-| Periodic click | `Per tick` clicks every `Interval` | interval, per tick |
-| Periodic hold | Holds for `Hold` ticks every `Interval` | interval, hold |
-| Periodic burst | One click per tick for `Burst` ticks every `Interval` | interval, burst |
+| Feature | Behaviour | Acts when | Values |
+|---------|-----------|-----------|--------|
+| Hold | Keeps the button pressed until switched off | on its own | none |
+| Fast click | Turns one of **your** clicks into `Clicks` clicks | only when you click | clicks |
+| Periodic click | Fires `Clicks` clicks over consecutive ticks every `Interval` | on its own | interval, clicks |
+| Periodic hold | Holds for `Hold` ticks every `Interval` | on its own | interval, hold |
 
 Grouped per button: **Attack** and **Use**. Times are game ticks (1 tick = 50 ms, 20 per second).
+
+### Fast click is a multiplier, not a timer
+
+Fast click is the only feature that does nothing by itself. Turn it on and the next time **you** click
+that mouse button, the mod repeats the click for you, so one physical click becomes `Clicks` clicks.
+Every other feature acts on its own once switched on.
+
+### Why periodic click fires its clicks on separate ticks
+
+The clicks are spread one per tick, not all in one tick. Vanilla resets the attack strength on the first
+click, so extra clicks in the same tick would be swallowed and a "burst" would really be a single hit.
+Separate ticks is what makes `Clicks` actually mean that many hits.
 
 ## Mutual exclusion
 
@@ -49,7 +60,7 @@ time.
 
 ## Defaults
 
-All ten features start **off** and **unbound**. Their on/off state is not saved, so a restart never
+All eight features start **off** and **unbound**. Their on/off state is not saved, so a restart never
 starts clicking. Bind a key per feature in the config screen.
 
 ## Vanilla limits
@@ -106,16 +117,17 @@ values fall back to defaults. The format is identical on every supported version
 ```json
 {
   "enabled": true, "hud": true, "messages": true,
-  "attack_hold":          { "interval": 20, "duration": 10, "perTick": 1, "burst": 3,
+  "attack_hold":          { "interval": 20, "duration": 10, "count": 3,
                             "key": "key.keyboard.r", "modifiers": "ctrl+shift" },
-  "attack_periodic_hold": { "interval": 20, "duration": 10, "perTick": 1, "burst": 3,
+  "attack_periodic_hold": { "interval": 20, "duration": 10, "count": 3,
                             "key": "key.mouse.4", "modifiers": "win" },
-  "use_fast_click":       { "interval": 20, "duration": 10, "perTick": 4, "burst": 3 }
+  "use_fast_click":       { "interval": 20, "duration": 10, "count": 4 }
 }
 ```
 
 Feature ids: `attack_*` and `use_*` combined with `hold`, `fast_click`, `periodic_click`,
-`periodic_hold`, `periodic_burst`.
+`periodic_hold`. A config from an older build that still has `perTick` or `burst` is read as
+`count` (the larger of the two), so nothing is lost.
 
 ## Building
 
@@ -139,14 +151,15 @@ classpath regardless of the declaration.
 
 ## Tests
 
-* 43 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
+* 48 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
   master switch, starting with the master switch off, combination matching including mouse buttons and
-  Win, and a 7000 tick drift check.
+  Win, fast click being a multiplier, the periodic-click tick spread, and a 7000 tick drift check.
 * 1.21.10, 1.21.11 and 26.3 have in-game tests that boot a real client, create a world, and assert
   holds, clicks, one-tick-per-tick timing, mutual exclusion, the master switch, screen behaviour,
   combination matching, that a rebind fires without a restart, that a mouse button binds too, that a typed
-  number reaches the engine and is clamped, and that both screens draw visible text with no widget
-  overlapping another or leaving the screen at a small gui.
+  number reaches the engine and is clamped, that fast click injects the extra clicks for a real press,
+  that a three-modifier combination is captured whole, and that both screens draw visible text with no
+  widget overlapping another or leaving the screen at a small gui.
 * 1.19.4, 1.20.1 and 1.21.1 have no client gametest API; they are verified by compiling, packaging and
   starting the game.
 
@@ -186,11 +199,11 @@ if something is missing.
 **[English](#client-interactions)** | **中文**
 
 > **阅读指引**
-> 中文部分 3 791 字（不计空白），大约需要 8 分钟；英文部分 1 359 词（不计空格 7 077 字符），
+> 中文部分 4 081 字（不计空白），大约需要 8 分钟；英文部分 1 528 词（不计空格 7 830 字符），
 > 大约需要 6 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
 
 一个客户端 Fabric 模组，为 Minecraft 的两个鼠标键——**攻击**（左键）与**使用**（右键）——提供
-**十个互相独立**的自动化功能。每个功能都有自己的开关、自己的快捷键和自己的参数。
+**八个互相独立**的自动化功能。每个功能都有自己的开关、自己的快捷键和自己的参数。
 
 ## 支持的版本
 
@@ -207,19 +220,28 @@ if something is missing.
 [Fabric API](https://modrinth.com/mod/fabric-api)；[Mod Menu](https://modrinth.com/mod/modmenu) 可选，
 只用于添加配置按钮。
 
-## 十个功能
+## 八个功能
 
-每个按键五种行为，共十个独立功能。
+每个按键四种行为，共八个独立功能。
 
-| 功能 | 行为 | 参数 |
-|------|------|------|
-| 长按 | 保持按下直到关闭 | 无 |
-| 快速连点 | 每刻注入 `每刻次数` 次点击 | 每刻次数 |
-| 周期点击 | 每隔 `间隔` 刻注入 `每刻次数` 次点击 | 间隔、每刻次数 |
-| 周期长按 | 每隔 `间隔` 刻按住 `按住` 刻 | 间隔、按住 |
-| 周期连点 | 每隔 `间隔` 刻连发 `连发` 次点击 | 间隔、连发 |
+| 功能 | 行为 | 触发时机 | 参数 |
+|------|------|----------|------|
+| 长按 | 保持按下直到关闭 | 自动 | 无 |
+| 快速连点 | 把**你自己**的一次点击变成 `次数` 次 | 仅在你点击时 | 次数 |
+| 周期点击 | 每隔 `间隔` 刻，在连续刻上打出 `次数` 次点击 | 自动 | 间隔、次数 |
+| 周期长按 | 每隔 `间隔` 刻按住 `按住` 刻 | 自动 | 间隔、按住 |
 
 按按键分为两组：**攻击**与**使用**。时间单位为游戏刻（1 刻 = 50 毫秒，每秒 20 刻）。
+
+### 快速连点是倍率，不是定时器
+
+快速连点是唯一不会自行动作的功能。开启后，**你**下一次按下该鼠标键时，模组替你把这个点击
+重复若干次，于是一次物理点击变成 `次数` 次点击。其余功能一旦开启都会自动执行。
+
+### 周期点击为什么把点击分散到不同刻
+
+这些点击是一刻一次、连续打出的，而不是全挤在同一刻。原版在第一次点击时就会重置攻击蓄力，
+同一刻的后续点击会被吞掉，所谓「连发」实际只有一下。分散到不同刻，`次数` 才真的等于打了几下。
 
 ## 互斥
 
@@ -228,7 +250,7 @@ if something is missing.
 
 ## 默认状态
 
-十个功能默认**全部关闭**且**全部无快捷键**。功能的开关状态不会被保存，所以重启游戏不会自动开始
+八个功能默认**全部关闭**且**全部无快捷键**。功能的开关状态不会被保存，所以重启游戏不会自动开始
 点击。快捷键请在配置界面里逐个绑定。
 
 ## 原版限制
@@ -282,15 +304,16 @@ if something is missing.
 ```json
 {
   "enabled": true, "hud": true, "messages": true,
-  "attack_hold":          { "interval": 20, "duration": 10, "perTick": 1, "burst": 3,
+  "attack_hold":          { "interval": 20, "duration": 10, "count": 3,
                             "key": "key.keyboard.r", "modifiers": "ctrl+shift" },
-  "attack_periodic_hold": { "interval": 20, "duration": 10, "perTick": 1, "burst": 3, "key": "key.keyboard.h" },
-  "use_fast_click":       { "interval": 20, "duration": 10, "perTick": 4, "burst": 3 }
+  "attack_periodic_hold": { "interval": 20, "duration": 10, "count": 3,
+                            "key": "key.mouse.4", "modifiers": "win" },
+  "use_fast_click":       { "interval": 20, "duration": 10, "count": 4 }
 }
 ```
 
-功能 id 为 `attack_*` / `use_*` 加上 `hold`、`fast_click`、`periodic_click`、`periodic_hold`、
-`periodic_burst`。
+功能 id 为 `attack_*` / `use_*` 加上 `hold`、`fast_click`、`periodic_click`、`periodic_hold`。
+旧版本配置里若仍有 `perTick` 或 `burst`，会被当作 `count` 读取（取两者较大值），不会丢失。
 
 ## 构建
 
@@ -313,12 +336,13 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 
 ## 测试
 
-* 43 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
-  组合键匹配（含鼠标键与 Win），以及 7000 刻的漂移检查。
+* 48 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
+  组合键匹配（含鼠标键与 Win）、快速连点的倍率语义、周期点击的跨刻分布，以及 7000 刻的
+  漂移检查。
 * 1.21.10、1.21.11、26.3 有游戏内测试：启动真实客户端、创建世界，断言长按、点击、每刻一步的
   计时、互斥、总开关、界面行为、组合键匹配、改键无需重启即生效、鼠标键可绑定、输入的
-  数值会进入引擎并被钳制，以及在较小 GUI 下两个界面都能画出可见文字、且没有按钮互相
-  重叠或跑出屏幕。
+  数值会进入引擎并被钳制、快速连点确实为一次真实按下注入了额外点击、三修饰键组合被
+  完整捕获，以及在较小 GUI 下两个界面都能画出可见文字、且没有按钮互相重叠或跑出屏幕。
 * 1.19.4、1.20.1、1.21.1 没有客户端 gametest API，通过编译、打包和启动游戏验证。
 
 ## 疑难排查

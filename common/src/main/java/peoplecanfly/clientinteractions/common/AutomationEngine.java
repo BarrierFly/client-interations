@@ -145,7 +145,12 @@ public final class AutomationEngine {
         return null;
     }
 
-    /** Advances every active feature by exactly one client tick. */
+    /**
+     * Advances every active feature by exactly one client tick.
+     *
+     * <p>Fast click is skipped: it is a multiplier for the player's own clicks, so it must not generate
+     * input on its own. See {@link #playerClickCount(ActionChannel)}.</p>
+     */
     public void tick() {
         for (Feature feature : Feature.values()) {
             FeatureScheduler scheduler = this.schedulers.get(feature);
@@ -163,5 +168,28 @@ public final class AutomationEngine {
                 this.host.release(feature.channel());
             }
         }
+    }
+
+    /**
+     * How many clicks one of the player's own clicks should become on this channel.
+     *
+     * <p>Returns {@code 1} unless fast click is active, in which case it is that feature's {@code count}.
+     * The caller multiplies the physical click by this, which is why fast click needs no timer of its
+     * own: it only ever acts when the player does.</p>
+     */
+    public int playerClickCount(ActionChannel channel) {
+        Feature fastClick = Feature.fastClickFor(channel);
+
+        if (fastClick == null || !this.enabled) {
+            return 1;
+        }
+
+        FeatureScheduler scheduler = this.schedulers.get(fastClick);
+
+        if (!scheduler.isActive()) {
+            return 1;
+        }
+
+        return scheduler.fastClickCount(fastClick, this.settings.get(fastClick));
     }
 }

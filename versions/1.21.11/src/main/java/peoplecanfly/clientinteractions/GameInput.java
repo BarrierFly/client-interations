@@ -121,6 +121,37 @@ public final class GameInput {
                 this.client.startUseItem();
             }
         }
+
+        this.injected += clicks;
+    }
+
+    /**
+     * Performs one of the player's own clicks {@code times} times, for fast click.
+     *
+     * <p>This is the only entry point fast click uses: the feature multiplies a real click instead of
+     * clicking on a timer, so it does nothing unless the player acts.</p>
+     *
+     * <p>Vanilla has already processed the physical press by the time this runs, so the extra clicks are
+     * the ones added here. A count of {@code 1} is the physical click itself and needs no extra work.</p>
+     */
+    public void playerClick(ActionChannel channel, int times) {
+        if (times <= 1) {
+            return;
+        }
+
+        this.click(channel, times - 1);
+    }
+
+    /** How many clicks the mod has injected, so a test can prove the multiplier really fired. */
+    private int injected;
+
+    /** The number of clicks injected since the last {@link #resetInjectedClicks()}. */
+    public int injectedClicks() {
+        return this.injected;
+    }
+
+    public void resetInjectedClicks() {
+        this.injected = 0;
     }
 
     /**

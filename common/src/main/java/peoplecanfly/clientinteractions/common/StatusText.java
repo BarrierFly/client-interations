@@ -18,13 +18,11 @@ public final class StatusText {
             case HOLD:
                 return "";
             case FAST_CLICK:
-                return "x" + settings.perTick() + "/tick";
+                return "x" + settings.count() + " per your click";
             case PERIODIC_CLICK:
-                return "x" + settings.perTick() + " every " + settings.interval() + "t";
+                return settings.count() + " clicks every " + settings.interval() + "t";
             case PERIODIC_HOLD:
                 return settings.duration() + "t every " + settings.interval() + "t";
-            case PERIODIC_BURST:
-                return settings.burst() + " clicks every " + settings.interval() + "t";
             default:
                 return "";
         }
@@ -49,10 +47,10 @@ public final class StatusText {
 
     /** The hint under a page title explaining what the rows do. */
     public static String screenHint() {
-        return "Name toggles - key rebinds - value cycles";
+        return "Name toggles - key rebinds - numbers are typed";
     }
 
-    /** The prompt shown while waiting for a key, e.g. {@code Press a key for Attack: Hold}. */
+    /** The prompt shown while waiting for a key, e.g. {@code Press the key for Attack: Hold}. */
     public static String keyPrompt(Feature feature) {
         return "Press the key for " + feature.label();
     }

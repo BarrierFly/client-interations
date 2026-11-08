@@ -22,6 +22,10 @@ import peoplecanfly.clientinteractions.common.FeatureSettings;
  * one button exclude each other, and that the screens render.</p>
  */
 public final class ClientGameTest implements FabricClientGameTest {
+    /** GLFW modifier bits: shift, ctrl, alt. */
+    private static final int MODIFIER_MASK = 1 | 2 | 4;
+
+
     private static final Logger LOGGER = LoggerFactory.getLogger("ClientInteractions-GameTest");
 
     @Override
@@ -41,8 +45,9 @@ public final class ClientGameTest implements FabricClientGameTest {
 
             testHold(context, Feature.ATTACK_HOLD);
             testFastClick(context);
+            testFastClickMultipliesRealClicks(context);
             testPeriodicHold(context);
-            testPeriodicBurst(context);
+            testPeriodicClickSpread(context);
             testMutualExclusion(context);
             testMasterSwitch(context);
             testAttackBlockedByScreen(context);
@@ -52,6 +57,7 @@ public final class ClientGameTest implements FabricClientGameTest {
             testKeyComboRoundTrip(context);
             testKeyComboActuallyFires(context);
             testValueFieldAcceptsTypedNumbers(context);
+            testFullCombinationIsCaptured(context);
 
             LOGGER.info("All in-game checks passed");
         }
@@ -76,7 +82,7 @@ public final class ClientGameTest implements FabricClientGameTest {
     }
 
     private void testHold(ClientGameTestContext context, Feature feature) {
-        configure(context, feature, new FeatureSettings(20, 10, 1, 3));
+        configure(context, feature, new FeatureSettings(20, 10, 1));
         toggle(context, feature);
         context.waitTicks(3);
 
@@ -88,21 +94,43 @@ public final class ClientGameTest implements FabricClientGameTest {
         require(compute(context, () -> !client().options.keyAttack.isDown()), "hold: vanilla key released");
     }
 
+    /**
+     * Fast click must be a multiplier for the player's own click, never a timer.
+     *
+     * <p>Two things are asserted: that it produces no input while left alone, and that its {@code count}
+     * is what the engine reports for a player click. The first is the semantics that separates it from
+     * every other feature.</p>
+     */
     private void testFastClick(ClientGameTestContext context) {
-        configure(context, Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 4, 3));
-        toggle(context, Feature.ATTACK_FAST_CLICK);
-        context.waitTicks(5);
+        configure(context, Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 4));
 
-        int elapsed = compute(context, () -> mod().engine().scheduler(Feature.ATTACK_FAST_CLICK).elapsedTicks());
-        require(elapsed == 5, "fast click: one scheduler tick per client tick, got " + elapsed);
+        // Off: the player's click stays one click.
+        require(compute(context, () -> mod().engine().playerClickCount(ActionChannel.ATTACK) == 1),
+                "fast click: off means one click per player click");
+
+        toggle(context, Feature.ATTACK_FAST_CLICK);
+        context.waitTicks(6);
+
+        require(compute(context, () -> mod().engine().playerClickCount(ActionChannel.ATTACK) == 4),
+                "fast click: multiplies the player's click by its count");
+
+        // Nothing happens on its own, however long it runs.
         require(compute(context, () -> !client().options.keyAttack.isDown()),
-                "fast click: a click mode leaves the key released");
+                "fast click: never holds the button by itself");
+        require(compute(context, () -> mod().engine().scheduler(Feature.ATTACK_FAST_CLICK).elapsedTicks() == 6),
+                "fast click: still ticks its clock while idle");
+
+        // The other channel is untouched.
+        require(compute(context, () -> mod().engine().playerClickCount(ActionChannel.USE) == 1),
+                "fast click: does not affect the other button");
 
         stop(context, Feature.ATTACK_FAST_CLICK);
+        require(compute(context, () -> mod().engine().playerClickCount(ActionChannel.ATTACK) == 1),
+                "fast click: stopping restores one click per player click");
     }
 
     private void testPeriodicHold(ClientGameTestContext context) {
-        configure(context, Feature.USE_PERIODIC_HOLD, new FeatureSettings(6, 3, 1, 3));
+        configure(context, Feature.USE_PERIODIC_HOLD, new FeatureSettings(6, 3, 1));
         toggle(context, Feature.USE_PERIODIC_HOLD);
 
         boolean sawHeld = false;
@@ -128,22 +156,38 @@ public final class ClientGameTest implements FabricClientGameTest {
                 "periodic hold: released when stopped");
     }
 
-    private void testPeriodicBurst(ClientGameTestContext context) {
-        configure(context, Feature.ATTACK_PERIODIC_BURST, new FeatureSettings(10, 1, 1, 3));
-        toggle(context, Feature.ATTACK_PERIODIC_BURST);
-        context.waitTicks(9);
+    /**
+     * Periodic click must spread its clicks across ticks, one per tick.
+     *
+     * <p>Firing them all in a single tick does not work: vanilla resets the attack strength on the first
+     * click, so the rest would be swallowed. This checks that the scheduler advances one click per tick
+     * rather than one burst per interval.</p>
+     */
+    private void testPeriodicClickSpread(ClientGameTestContext context) {
+        configure(context, Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(6, 1, 3));
+        toggle(context, Feature.ATTACK_PERIODIC_CLICK);
 
-        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_PERIODIC_BURST)),
-                "burst: still active after nine ticks");
-        require(compute(context, () -> mod().engine().scheduler(Feature.ATTACK_PERIODIC_BURST).elapsedTicks() == 9),
-                "burst: phase advanced by nine ticks");
+        java.util.List<Integer> perTick = new java.util.ArrayList<>();
 
-        stop(context, Feature.ATTACK_PERIODIC_BURST);
+        for (int i = 0; i < 6; i++) {
+            context.waitTick();
+            perTick.add(compute(context, () ->
+                    mod().engine().scheduler(Feature.ATTACK_PERIODIC_CLICK).elapsedTicks()));
+        }
+
+        // The phase must advance by exactly one per client tick and never jump.
+        for (int i = 0; i < perTick.size(); i++) {
+            require(perTick.get(i) == i + 1,
+                    "periodic click: one tick per client tick, saw " + perTick.get(i) + " at " + i);
+        }
+
+        stop(context, Feature.ATTACK_PERIODIC_CLICK);
+        context.waitTicks(2);
     }
 
     private void testMutualExclusion(ClientGameTestContext context) {
-        configure(context, Feature.ATTACK_HOLD, new FeatureSettings(20, 10, 1, 3));
-        configure(context, Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(5, 1, 1, 3));
+        configure(context, Feature.ATTACK_HOLD, new FeatureSettings(20, 10, 1));
+        configure(context, Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(5, 1, 1));
 
         toggle(context, Feature.ATTACK_HOLD);
         context.waitTicks(2);
@@ -164,7 +208,7 @@ public final class ClientGameTest implements FabricClientGameTest {
     }
 
     private void testMasterSwitch(ClientGameTestContext context) {
-        configure(context, Feature.ATTACK_HOLD, new FeatureSettings(20, 10, 1, 3));
+        configure(context, Feature.ATTACK_HOLD, new FeatureSettings(20, 10, 1));
         toggle(context, Feature.ATTACK_HOLD);
         context.waitTicks(2);
         require(compute(context, () -> client().options.keyAttack.isDown()), "master: down while enabled");
@@ -187,7 +231,7 @@ public final class ClientGameTest implements FabricClientGameTest {
     }
 
     private void testAttackBlockedByScreen(ClientGameTestContext context) {
-        configure(context, Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 1, 3));
+        configure(context, Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 1));
         toggle(context, Feature.ATTACK_FAST_CLICK);
         context.waitTicks(2);
 
@@ -335,7 +379,7 @@ public final class ClientGameTest implements FabricClientGameTest {
     private void testValueFieldAcceptsTypedNumbers(ClientGameTestContext context) {
         compute(context, () -> {
             mod().config().setSettings(Feature.ATTACK_PERIODIC_CLICK,
-                    new FeatureSettings(20, 10, 1, 3));
+                    new FeatureSettings(20, 10, 1));
             mod().syncEngine();
             return null;
         });
@@ -362,7 +406,7 @@ public final class ClientGameTest implements FabricClientGameTest {
 
         // Back to a sane default for the rest of the run.
         compute(context, () -> {
-            mod().config().setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(20, 10, 1, 3));
+            mod().config().setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(20, 10, 1));
             mod().syncEngine();
             return null;
         });
@@ -531,6 +575,108 @@ public final class ClientGameTest implements FabricClientGameTest {
         net.minecraft.client.KeyMapping.set(key, false);
 
         return receivedDown && !mapping.isDown();
+    }
+
+    /**
+     * Proves fast click actually multiplies a real click, not just reports a number.
+     *
+     * <p>The physical press is detected from vanilla's own key state, which is exactly what the mod reads
+     * at runtime, so this exercises the same path a player would. The witness is the count of clicks the
+     * mod injected: with the feature off it must be zero, and with it on it must be {@code count - 1} per
+     * press.</p>
+     */
+    private void testFastClickMultipliesRealClicks(ClientGameTestContext context) {
+        configure(context, Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 6));
+
+        // Off: pressing the button must inject nothing.
+        compute(context, () -> {
+            mod().input().resetInjectedClicks();
+            return null;
+        });
+        pressAttackKey(context, true);
+        require(compute(context, () -> mod().input().injectedClicks() == 0),
+                "fast click: off injects nothing for a player press");
+
+        // On: one press must inject count - 1 extra clicks.
+        toggle(context, Feature.ATTACK_FAST_CLICK);
+        context.waitTicks(2);
+        compute(context, () -> {
+            mod().input().resetInjectedClicks();
+            return null;
+        });
+
+        pressAttackKey(context, true);
+
+        int injected = compute(context, () -> mod().input().injectedClicks());
+        LOGGER.info("fast click: injected {} extra clicks for one player press", injected);
+        require(injected == 5,
+                "fast click: one press becomes 6 clicks, so 5 extra, saw " + injected);
+
+        stop(context, Feature.ATTACK_FAST_CLICK);
+        context.waitTicks(2);
+    }
+
+    /**
+     * Presses and releases vanilla's attack button the way a real mouse does.
+     *
+     * <p>Writing the key state is what vanilla's own mouse handler does on a press, so this drives the
+     * same detection the mod uses, without depending on whether the test harness can deliver mouse
+     * events to a grabbed window.</p>
+     */
+    private void pressAttackKey(ClientGameTestContext context, boolean attack) {
+        compute(context, () -> {
+            client().options.keyAttack.setDown(true);
+            return null;
+        });
+        context.waitTicks(2);
+        compute(context, () -> {
+            client().options.keyAttack.setDown(false);
+            return null;
+        });
+        context.waitTicks(2);
+    }
+
+    /**
+     * Checks that a three-modifier combination is captured whole, not cut short at the second key.
+     *
+     * <p>The old screen polled the keyboard when the press was handled. Vanilla queues key events to the
+     * main thread, so by then the user had often released the modifiers, and the binding silently became a
+     * plain key. This drives the same event the vanilla handler builds, with all modifiers set in the
+     * event, and asserts all of them survive into the stored combination.</p>
+     */
+    private void testFullCombinationIsCaptured(ClientGameTestContext context) {
+        context.setScreen(() -> new KeyBindScreen(null, mod(), Feature.ATTACK_HOLD));
+        context.waitTicks(3);
+
+        // Ctrl + Shift + Alt + K. Built through the event's own modifier accessors so the mask matches
+        // whatever this version uses, rather than hard-coding a bit pattern that differs per release.
+        compute(context, () -> {
+            KeyBindScreen screen = (KeyBindScreen) client().screen;
+            screen.keyPressed(new net.minecraft.client.input.KeyEvent(
+                    org.lwjgl.glfw.GLFW.GLFW_KEY_K, 0, MODIFIER_MASK));
+            return null;
+        });
+        context.waitTicks(2);
+
+        require(compute(context, () -> {
+            peoplecanfly.clientinteractions.common.KeyCombo combo =
+                    mod().config().key(Feature.ATTACK_HOLD);
+            return combo.hasControl() && combo.hasShift() && combo.hasAlt();
+        }), "combo: Ctrl+Shift+Alt+K keeps all three modifiers");
+
+        require(compute(context, () -> "key.keyboard.k"
+                        .equals(mod().config().key(Feature.ATTACK_HOLD).keyName())),
+                "combo: the main key is the last one pressed");
+
+        compute(context, () -> {
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().saveConfig();
+            return null;
+        });
+        context.setScreen(() -> null);
+        context.waitTicks(2);
     }
 
     /**

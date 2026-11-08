@@ -62,11 +62,18 @@ public final class ConfigStore {
                 JsonObject node = root.getAsJsonObject(feature.id());
                 FeatureSettings defaults = config.settings(feature);
 
-                config.setSettings(feature, new FeatureSettings(
-                        getInt(node, "interval", defaults.interval()),
-                        getInt(node, "duration", defaults.duration()),
-                        getInt(node, "perTick", defaults.perTick()),
-                        getInt(node, "burst", defaults.burst())));
+                int interval = getInt(node, "interval", defaults.interval());
+                int duration = getInt(node, "duration", defaults.duration());
+                int count = getInt(node, "count", defaults.count());
+
+                // Older configs stored perTick and burst separately; both meant "clicks per interval", so
+                // the larger of the two is carried over as the single count.
+                int perTick = getInt(node, "perTick", 0);
+                int burst = getInt(node, "burst", 0);
+
+                config.setSettings(feature, perTick > 0 || burst > 0
+                        ? FeatureSettings.legacy(interval, duration, perTick, burst)
+                        : new FeatureSettings(interval, duration, count));
 
                 String key = getString(node, "key", null);
 
@@ -93,8 +100,7 @@ public final class ConfigStore {
             JsonObject node = new JsonObject();
             node.addProperty("interval", settings.interval());
             node.addProperty("duration", settings.duration());
-            node.addProperty("perTick", settings.perTick());
-            node.addProperty("burst", settings.burst());
+            node.addProperty("count", settings.count());
 
             KeyCombo combo = config.key(feature);
 

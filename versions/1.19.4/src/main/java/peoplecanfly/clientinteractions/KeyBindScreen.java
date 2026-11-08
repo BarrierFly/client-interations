@@ -130,8 +130,19 @@ public final class KeyBindScreen extends Screen {
         }
 
         InputConstants.Key key = InputConstants.Type.KEYSYM.getOrCreate(keyCode);
+        String name = key.getName();
 
-        return this.capture(key.getName());
+        if (KeyNames.isModifier(name)) {
+            // A modifier alone is not a usable binding; say so rather than closing silently.
+            this.notice = KeyNames.readable(name) + " is a modifier - hold it and press another key";
+            this.rebuildWidgets();
+            return true;
+        }
+
+        Modifiers held = this.modifiers();
+
+        this.apply(KeyCombo.of(name, held.shift(), held.control(), held.alt(), held.win()));
+        return true;
     }
 
     @Override
@@ -143,22 +154,9 @@ public final class KeyBindScreen extends Screen {
         }
 
         InputConstants.Key key = InputConstants.Type.MOUSE.getOrCreate(button);
-
-        return this.capture(key.getName());
-    }
-
-    /** Stores a captured key name, or explains why it cannot be used. */
-    private boolean capture(String keyName) {
-        if (KeyNames.isModifier(keyName)) {
-            // A modifier alone is not a usable binding; say so rather than closing silently.
-            this.notice = KeyNames.readable(keyName) + " is a modifier - hold it and press another key";
-            this.rebuildWidgets();
-            return true;
-        }
-
         Modifiers held = this.modifiers();
 
-        this.apply(KeyCombo.of(keyName, held.shift(), held.control(), held.alt(), held.win()));
+        this.apply(KeyCombo.of(key.getName(), held.shift(), held.control(), held.alt(), held.win()));
         return true;
     }
 
