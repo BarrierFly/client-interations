@@ -75,10 +75,30 @@ public final class ConfigStore {
                         ? FeatureSettings.legacy(interval, duration, perTick, burst)
                         : new FeatureSettings(interval, duration, count));
 
-                String key = getString(node, "key", null);
+                // Current format: the full key list. Older configs stored one "key" plus a "modifiers"
+                // string, which is still read so an existing binding is not lost.
+                if (node.has("keys") && node.get("keys").isJsonArray()) {
+                    java.util.List<String> keys = new java.util.ArrayList<>();
 
-                if (key != null && !key.isEmpty()) {
-                    config.setKey(feature, KeyCombo.parse(key, getString(node, "modifiers", "")));
+                    for (com.google.gson.JsonElement element : node.getAsJsonArray("keys")) {
+                        if (element.isJsonPrimitive()) {
+                            keys.add(element.getAsString());
+                        }
+                    }
+
+                    config.setKey(feature, KeyCombo.of(keys));
+                } else {
+                    String key = getString(node, "key", null);
+
+                    if (key != null && !key.isEmpty() && !key.equals("key.keyboard.unknown")) {
+                        String modifiers = getString(node, "modifiers", "").toLowerCase(java.util.Locale.ROOT);
+
+                        config.setKey(feature, KeyCombo.of(key,
+                                modifiers.contains("shift"),
+                                modifiers.contains("ctrl"),
+                                modifiers.contains("alt"),
+                                modifiers.contains("win")));
+                    }
                 }
             }
         } catch (Exception e) {
@@ -105,11 +125,16 @@ public final class ConfigStore {
             KeyCombo combo = config.key(feature);
 
             if (combo.isBound()) {
-                node.addProperty("key", combo.keyName());
+                // The full key list, so any combination of any keys round-trips. "key" is written too for
+                // readability and for older builds, and holds the primary key.
+                com.google.gson.JsonArray keys = new com.google.gson.JsonArray();
 
-                if (combo.hasModifiers()) {
-                    node.addProperty("modifiers", combo.modifierString());
+                for (String key : combo.keys()) {
+                    keys.add(key);
                 }
+
+                node.add("keys", keys);
+                node.addProperty("key", combo.primaryKey());
             }
 
             root.add(feature.id(), node);

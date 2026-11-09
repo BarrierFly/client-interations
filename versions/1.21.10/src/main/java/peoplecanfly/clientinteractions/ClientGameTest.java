@@ -23,6 +23,8 @@ import peoplecanfly.clientinteractions.common.FeatureSettings;
  */
 public final class ClientGameTest implements FabricClientGameTest {
     /** GLFW modifier bits, as delivered by the key callback. */
+    private static final int KEY_A = org.lwjgl.glfw.GLFW.GLFW_KEY_A;
+    private static final int KEY_C = org.lwjgl.glfw.GLFW.GLFW_KEY_C;
     private static final int MODIFIER_MASK_SHIFT = 0x0001;
     private static final int MODIFIER_MASK_CONTROL = 0x0002;
     private static final int MODIFIER_MASK_ALT = 0x0004;
@@ -67,6 +69,8 @@ public final class ClientGameTest implements FabricClientGameTest {
             testValueFieldAcceptsTypedNumbers(context);
             testFullCombinationIsCaptured(context);
             testCombinationFiresWithRealKeys(context);
+            testLongerCombinationBlocksShorter(context);
+            testHoldSurvivesScreen(context);
             testNoDefaultHotkeys(context);
 
             LOGGER.info("All in-game checks passed");
@@ -459,24 +463,38 @@ public final class ClientGameTest implements FabricClientGameTest {
 
     private void testKeyComboRoundTrip(ClientGameTestContext context) {
         // A combination must survive a save/load cycle through the config file, because vanilla key
-        // mappings cannot store modifiers.
+        // mappings cannot store more than one key.
         compute(context, () -> {
-            mod().config().setKey(Feature.USE_HOLD,
-                    peoplecanfly.clientinteractions.common.KeyCombo.of("key.keyboard.k", true, true, false));
+            mod().config().setKey(Feature.USE_HOLD, combo(
+                    "key.keyboard.left.control", "key.keyboard.left.shift", "key.keyboard.k"));
             mod().saveConfig();
             return null;
         });
 
-        require(compute(context, () -> mod().config().key(Feature.USE_HOLD).hasShift()
-                        && mod().config().key(Feature.USE_HOLD).hasControl()
-                        && !mod().config().key(Feature.USE_HOLD).hasAlt()),
-                "key combo: modifiers survive the save");
+        require(compute(context, () -> mod().config().key(Feature.USE_HOLD).keys().equals(
+                        java.util.List.of("key.keyboard.left.control",
+                                "key.keyboard.left.shift", "key.keyboard.k"))),
+                "key combo: all keys survive the save, in order");
+
+        // Reload the file from disk to prove it is the file that round-trips.
+        require(compute(context, () -> {
+            peoplecanfly.clientinteractions.common.KeyCombo reloaded =
+                    new ConfigStore(mod().configStore().path().getParent())
+                            .load().key(Feature.USE_HOLD);
+            return reloaded.keys().equals(java.util.List.of("key.keyboard.left.control",
+                    "key.keyboard.left.shift", "key.keyboard.k"));
+        }), "key combo: the combination reads back from the config file");
 
         compute(context, () -> {
             mod().config().setKey(Feature.USE_HOLD, peoplecanfly.clientinteractions.common.KeyCombo.unbound());
             mod().saveConfig();
             return null;
         });
+    }
+
+    /** Builds a combination from key names, in the order given. */
+    private static peoplecanfly.clientinteractions.common.KeyCombo combo(String... keys) {
+        return peoplecanfly.clientinteractions.common.KeyCombo.of(java.util.List.of(keys));
     }
 
     /**
@@ -497,12 +515,12 @@ public final class ClientGameTest implements FabricClientGameTest {
             return null;
         });
 
-        // A plain binding fires with no modifier and not while Shift is held.
+        // A plain binding matches when its own key is held, and not while Shift is also down.
         require(compute(context, () -> mod().config().key(Feature.ATTACK_HOLD)
-                        .matches(false, false, false)),
-                "combo: a plain binding matches with no modifiers");
+                        .matches(java.util.Set.of("key.keyboard.k"))),
+                "combo: a plain binding matches when its key is held");
         require(compute(context, () -> !mod().config().key(Feature.ATTACK_HOLD)
-                        .matches(true, false, false)),
+                        .matches(java.util.Set.of("key.keyboard.k", "key.keyboard.left.shift"))),
                 "combo: a plain binding does not match while Shift is held");
 
         // A Shift binding is the mirror image.
@@ -513,10 +531,10 @@ public final class ClientGameTest implements FabricClientGameTest {
         });
 
         require(compute(context, () -> !mod().config().key(Feature.ATTACK_HOLD)
-                        .matches(false, false, false)),
+                        .matches(java.util.Set.of("key.keyboard.k"))),
                 "combo: a Shift binding does not match without Shift");
         require(compute(context, () -> mod().config().key(Feature.ATTACK_HOLD)
-                        .matches(true, false, false)),
+                        .matches(java.util.Set.of("key.keyboard.k", "key.keyboard.left.shift"))),
                 "combo: a Shift binding matches with Shift");
 
         // And the real binding path still works: the mapping ends up on the main key only.
@@ -647,38 +665,39 @@ public final class ClientGameTest implements FabricClientGameTest {
     }
 
     /**
-     * Checks that a three-modifier combination is captured whole, not cut short at the second key.
+     * Checks that a combination of ordinary keys is captured whole.
      *
-     * <p>This drives the presses in the order a user makes them: each modifier on its own, then the main
-     * key. The screen collects modifiers from press order rather than from a bit mask, precisely because
-     * the mask is not dependable: vanilla queues the events, and some harnesses inject a zero mask. Press
-     * order has no such dependency, so this test asserts the behaviour a real user gets.</p>
+     * <p>This is the behaviour the previous design could not do: with an automatic commit, the second key
+     * always ended the capture. The screen now keeps collecting and commits on Done, so {@code A+C} works.
+     * Modifiers are included too, proving they are not special-cased any more.</p>
      */
     private void testFullCombinationIsCaptured(ClientGameTestContext context) {
         context.setScreen(() -> new KeyBindScreen(null, mod(), Feature.ATTACK_HOLD));
         context.waitTicks(3);
 
-        // Ctrl, then Shift, then Alt, then K - exactly the order of a physical press.
-        pressOnBindScreen(context, MODIFIER_KEY_CONTROL, MODIFIER_MASK_CONTROL);
-        pressOnBindScreen(context, MODIFIER_KEY_SHIFT, MODIFIER_MASK_SHIFT);
-        pressOnBindScreen(context, MODIFIER_KEY_ALT, MODIFIER_MASK_ALT);
+        // Two ordinary keys plus one modifier, in press order.
+        pressOnBindScreen(context, KEY_A, 0);
+        pressOnBindScreen(context, KEY_C, 0);
+        pressOnBindScreen(context, MODIFIER_KEY_SHIFT, 0);
 
-        // The screen must still be open: a modifier alone is not a binding.
+        // The screen must still be open: nothing is committed until Done.
         require(compute(context, () -> client().screen instanceof KeyBindScreen),
-                "combo: a modifier alone does not close the screen");
+                "combo: pressing keys does not close the screen");
+        require(compute(context, () -> mod().config().key(Feature.ATTACK_HOLD).isBound() == false),
+                "combo: nothing is stored until Done");
 
-        pressOnBindScreen(context, KEY_K, 0);
+        compute(context, () -> {
+            if (client().screen instanceof KeyBindScreen screen) {
+                screen.accept();
+            }
+            return null;
+        });
         context.waitTicks(2);
 
-        require(compute(context, () -> {
-            peoplecanfly.clientinteractions.common.KeyCombo combo =
-                    mod().config().key(Feature.ATTACK_HOLD);
-            return combo.hasControl() && combo.hasShift() && combo.hasAlt();
-        }), "combo: Ctrl+Shift+Alt+K keeps all three modifiers");
-
-        require(compute(context, () -> "key.keyboard.k"
-                        .equals(mod().config().key(Feature.ATTACK_HOLD).keyName())),
-                "combo: the main key is the last one pressed");
+        require(compute(context, () -> mod().config().key(Feature.ATTACK_HOLD).keys()
+                        .equals(java.util.List.of("key.keyboard.a", "key.keyboard.c",
+                                "key.keyboard.left.shift"))),
+                "combo: A+C+Shift is stored whole and in order");
 
         compute(context, () -> {
             mod().config().setKey(Feature.ATTACK_HOLD,
@@ -705,35 +724,146 @@ public final class ClientGameTest implements FabricClientGameTest {
     /**
      * A bound combination must actually toggle its feature on a real press, and a plain key must not.
      *
-     * <p>This is the check for the second half of the report: the binding was stored but nothing happened
-     * when pressed. It binds Shift+K and drives the real key state, asserting that K alone leaves the
-     * feature off and Shift+K turns it on.</p>
+     * <p>This is the check for "the binding was stored but nothing happened when pressed". It also pins the
+     * exit condition: a real key transitions the feature exactly once per press, rather than toggling on and
+     * off while still showing a message.</p>
+     *
+     * <p>Ordinary keys are used rather than Shift, because Shift is the sneak binding and holding it would
+     * affect the world. The key state is set directly because the harness's synthetic input does not update
+     * vanilla's key table, which is what the mod reads.</p>
      */
     private void testCombinationFiresWithRealKeys(ClientGameTestContext context) {
         compute(context, () -> {
             mod().engine().stopAll();
-            mod().config().setKey(Feature.ATTACK_HOLD,
-                    peoplecanfly.clientinteractions.common.KeyCombo.of("key.keyboard.k", true, false, false, false));
+            mod().config().setKey(Feature.ATTACK_HOLD, combo("key.keyboard.a", "key.keyboard.c"));
             mod().applyKeyBinding(Feature.ATTACK_HOLD);
             mod().saveConfig();
             return null;
         });
         context.waitTicks(2);
 
-        // Plain K: the binding carries Shift, so it must stay off.
-        context.getInput().pressKey(KEY_K);
+        // A alone: not the full combination, so nothing happens.
+        context.getInput().holdKey(KEY_A);
         context.waitTicks(3);
         require(compute(context, () -> !mod().engine().isActive(Feature.ATTACK_HOLD)),
-                "combo: a plain key does not fire a Shift binding");
+                "combo: one key of a combination is not enough");
 
-        // Shift+K: must fire.
-        context.getInput().holdShift();
-        context.waitTicks(2);
-        context.getInput().pressKey(KEY_K);
+        // A+C: the combination is complete and must fire.
+        context.getInput().holdKey(KEY_C);
         context.waitTicks(3);
         require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_HOLD)),
-                "combo: the bound combination fires when pressed");
-        context.getInput().releaseShift();
+                "combo: the bound combination fires when all its keys are held");
+
+        // Keeping the keys down must not toggle it again.
+        context.waitTicks(8);
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_HOLD)),
+                "combo: holding the keys does not toggle the feature off again");
+
+        context.getInput().releaseKey(KEY_C);
+        context.getInput().releaseKey(KEY_A);
+        context.waitTicks(3);
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(2);
+    }
+
+    /**
+     * A longer combination must block a shorter binding it contains.
+     *
+     * <p>Binding {@code A+C} to one feature and plain {@code C} to another, then pressing both keys: only
+     * the {@code A+C} feature may run. Pressing {@code C} on its own must still run the plain binding.</p>
+     */
+    private void testLongerCombinationBlocksShorter(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD, combo("key.keyboard.a", "key.keyboard.c"));
+            mod().config().setKey(Feature.USE_HOLD, combo("key.keyboard.c"));
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().applyKeyBinding(Feature.USE_HOLD);
+            return null;
+        });
+        context.waitTicks(2);
+
+        // A then C: only the A+C feature.
+        context.getInput().holdKey(KEY_A);
+        context.waitTicks(2);
+        context.getInput().holdKey(KEY_C);
+        context.waitTicks(3);
+
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_HOLD)),
+                "shadowing: the A+C binding fires");
+        require(compute(context, () -> !mod().engine().isActive(Feature.USE_HOLD)),
+                "shadowing: the plain C binding does not fire while A+C is held");
+
+        context.getInput().releaseKey(KEY_C);
+        context.getInput().releaseKey(KEY_A);
+        context.waitTicks(3);
+
+        // C alone: the plain binding must work again.
+        context.getInput().holdKey(KEY_C);
+        context.waitTicks(3);
+        require(compute(context, () -> mod().engine().isActive(Feature.USE_HOLD)),
+                "shadowing: the plain C binding works again once A is released");
+        context.getInput().releaseKey(KEY_C);
+        context.waitTicks(3);
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().config().setKey(Feature.USE_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().applyKeyBinding(Feature.USE_HOLD);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(2);
+    }
+
+    /**
+     * An active hold must resume after a screen closes.
+     *
+     * <p>Vanilla calls {@code KeyMapping.releaseAll()} whenever a screen opens, which clears every key's
+     * down flag. Without re-asserting it, the hold stayed dead for the rest of the activation while the HUD
+     * still reported it as on. The flag is deliberately not forced while the screen is open - that would
+     * inject attacks into the inventory - so the check is that it comes back once the screen closes.</p>
+     */
+    private void testHoldSurvivesScreen(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD, combo("key.keyboard.a"));
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            return null;
+        });
+        context.waitTicks(2);
+
+        context.getInput().holdKey(KEY_A);
+        context.waitTicks(3);
+        require(compute(context, () -> client().options.keyAttack.isDown()),
+                "screen: the hold is down before the screen opens");
+
+        context.setScreen(() -> new InventoryScreen(Minecraft.getInstance().player));
+        context.waitTicks(3);
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_HOLD)),
+                "screen: the hold stays active while a screen is open");
+        require(compute(context, () -> !client().options.keyAttack.isDown()),
+                "screen: the mod does not inject attacks into an open screen");
+
+        context.setScreen(() -> null);
+        context.waitTicks(3);
+        require(compute(context, () -> client().options.keyAttack.isDown()),
+                "screen: the hold re-asserts the vanilla key once the screen closes");
+
+        context.getInput().releaseKey(KEY_A);
+        context.waitTicks(2);
 
         compute(context, () -> {
             mod().engine().stopAll();

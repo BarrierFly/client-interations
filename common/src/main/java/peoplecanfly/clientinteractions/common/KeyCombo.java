@@ -1,25 +1,30 @@
 package peoplecanfly.clientinteractions.common;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
- * One feature's hotkey: a main key plus any combination of Shift, Ctrl, Alt and Win.
+ * One feature's hotkey: a set of keys that all have to be held at the same time.
  *
- * <h2>Why the combination is not just a {@code KeyMapping}</h2>
- * <p>Vanilla {@code KeyMapping} holds a single key and cannot express {@code Ctrl+Shift+R}, and it can
- * only be registered with the keyboard or the mouse, not both. The mod therefore gives vanilla only the
- * <em>main</em> key (that is what makes vanilla report the press at all) and keeps the modifiers here.
- * The modifier state is then compared on every reported press.</p>
+ * <h2>Why a set and not a key plus modifier flags</h2>
+ * <p>Ctrl, Shift, Alt and Win are not special. Any key can take part, so {@code Ctrl+R}, {@code A+C} and
+ * {@code Ctrl+Shift+Alt+Win+R} are the same kind of thing: several keys held together. Treating the
+ * modifiers specially would have put an arbitrary limit on which keys may combine.</p>
  *
- * <h2>The mouse is a key too</h2>
- * <p>Vanilla already routes mouse buttons through the same {@code KeyMapping} machinery
- * ({@code InputConstants.Type.MOUSE}), so a mouse button is stored as an ordinary key name such as
- * {@code key.mouse.4}. Nothing else is needed to bind one.</p>
+ * <h2>Matching</h2>
+ * <p>Every key in the set must be down. A Shift/Ctrl/Alt/Win that is down but not part of the set blocks
+ * the match, which is what keeps {@code R} from firing while Shift is held. Ordinary keys outside the set
+ * are ignored by {@link #matches}, because the player is always holding something (W, space, ...).</p>
  *
- * <h2>Matching is exact</h2>
- * <p>A binding of plain {@code R} must not fire while Shift is held, and {@code Shift+R} must not fire
- * without it, otherwise one press could trigger two features. Every modifier that is <em>not</em> part of
- * the binding must be up, and every one that is part of it must be down.</p>
+ * <h2>Priority between overlapping bindings</h2>
+ * <p>Because ordinary keys are ignored, {@code C} alone would also match while {@code A+C} is held. That is
+ * wrong when one feature owns the longer combination: the longer binding has to win, or pressing {@code A}
+ * and {@code C} would fire both. {@link #isShadowedBy} provides that rule, and the caller uses it to skip a
+ * binding that is contained in a longer one currently being completed.</p>
  */
 public final class KeyCombo {
     /** The vanilla prefix for keyboard keys. */
@@ -27,33 +32,65 @@ public final class KeyCombo {
     /** The vanilla prefix for mouse buttons. */
     public static final String MOUSE_PREFIX = "key.mouse.";
 
-    private final String keyName;
-    private final boolean shift;
-    private final boolean control;
-    private final boolean alt;
-    private final boolean win;
+    /** The modifier key names vanilla defines. */
+    private static final Set<String> MODIFIER_KEYS = Set.of(
+            "key.keyboard.left.shift", "key.keyboard.right.shift",
+            "key.keyboard.left.control", "key.keyboard.right.control",
+            "key.keyboard.left.alt", "key.keyboard.right.alt",
+            "key.keyboard.left.win", "key.keyboard.right.win");
 
-    private KeyCombo(String keyName, boolean shift, boolean control, boolean alt, boolean win) {
-        this.keyName = keyName == null ? "" : keyName;
-        this.shift = shift;
-        this.control = control;
-        this.alt = alt;
-        this.win = win;
+    /** Keys in press order; the last one is the primary. Empty when unbound. */
+    private final List<String> keys;
+
+    private KeyCombo(List<String> keys) {
+        this.keys = Collections.unmodifiableList(new ArrayList<>(keys));
     }
 
     public static KeyCombo unbound() {
-        return new KeyCombo("", false, false, false, false);
+        return new KeyCombo(List.of());
     }
 
-    public static KeyCombo of(String keyName, boolean shift, boolean control, boolean alt, boolean win) {
-        if (keyName == null || keyName.isEmpty()) {
-            return unbound();
+    /** A combination of exactly these keys, in the order they were pressed. */
+    public static KeyCombo of(List<String> keys) {
+        LinkedHashSet<String> unique = new LinkedHashSet<>();
+
+        for (String key : keys) {
+            if (key != null && !key.isEmpty()) {
+                unique.add(key);
+            }
         }
 
-        return new KeyCombo(keyName, shift, control, alt, win);
+        return new KeyCombo(new ArrayList<>(unique));
     }
 
-    /** A combination with the three modifiers the older config format could store. */
+    /** A combination with one key plus the given modifier flags; the shape older configs used. */
+    public static KeyCombo of(String keyName, boolean shift, boolean control, boolean alt, boolean win) {
+        List<String> built = new ArrayList<>();
+
+        if (control) {
+            built.add("key.keyboard.left.control");
+        }
+
+        if (shift) {
+            built.add("key.keyboard.left.shift");
+        }
+
+        if (alt) {
+            built.add("key.keyboard.left.alt");
+        }
+
+        if (win) {
+            built.add("key.keyboard.left.win");
+        }
+
+        if (keyName != null && !keyName.isEmpty()) {
+            built.add(keyName);
+        }
+
+        return of(built);
+    }
+
+    /** A combo with the three modifiers older configs could store. */
     public static KeyCombo of(String keyName, boolean shift, boolean control, boolean alt) {
         return of(keyName, shift, control, alt, false);
     }
@@ -63,142 +100,130 @@ public final class KeyCombo {
         return of(keyName, false, false, false, false);
     }
 
-    /** The vanilla key name of the main key, or an empty string when unbound. */
+    /** Every key that has to be held, in press order. */
+    public List<String> keys() {
+        return this.keys;
+    }
+
+    /** The last key pressed, which is the one vanilla is told about. */
+    public String primaryKey() {
+        return this.keys.isEmpty() ? "" : this.keys.get(this.keys.size() - 1);
+    }
+
+    /** Kept for callers that only care about the key vanilla is registered on. */
     public String keyName() {
-        return this.keyName;
-    }
-
-    public boolean hasShift() {
-        return this.shift;
-    }
-
-    public boolean hasControl() {
-        return this.control;
-    }
-
-    public boolean hasAlt() {
-        return this.alt;
-    }
-
-    public boolean hasWin() {
-        return this.win;
+        return this.primaryKey();
     }
 
     public boolean isBound() {
-        return !this.keyName.isEmpty();
+        return !this.keys.isEmpty();
     }
 
-    /** True when the main key is a mouse button rather than a keyboard key. */
+    /** True when the primary key is a mouse button. */
     public boolean isMouse() {
-        return this.keyName.startsWith(MOUSE_PREFIX);
+        return this.primaryKey().startsWith(MOUSE_PREFIX);
     }
 
-    public boolean hasModifiers() {
-        return this.shift || this.control || this.alt || this.win;
+    public boolean hasMultipleKeys() {
+        return this.keys.size() > 1;
+    }
+
+    /** How many keys have to be held. */
+    public int size() {
+        return this.keys.size();
+    }
+
+    /** True when every key of this combo is also part of {@code other}. */
+    public boolean isSubsetOf(KeyCombo other) {
+        return other != null && other.keys.containsAll(this.keys);
+    }
+
+    public static boolean isModifierKey(String keyName) {
+        return keyName != null && MODIFIER_KEYS.contains(keyName);
     }
 
     /**
-     * Whether a press of this combination should fire, given the modifiers held at that moment.
+     * True when {@code other} is a longer combination that this one is part of.
      *
-     * <p>Exact on both sides: a modifier that is part of the binding must be held, and one that is not
-     * must be up.</p>
+     * <p>Used to give the longer binding priority: while {@code A+C} is held, a feature bound to plain
+     * {@code C} must not also fire, because {@code C} is part of a combination that another feature owns.</p>
      */
-    public boolean matches(boolean shiftDown, boolean controlDown, boolean altDown, boolean winDown) {
+    public boolean isShadowedBy(KeyCombo other) {
         return this.isBound()
-                && this.shift == shiftDown
-                && this.control == controlDown
-                && this.alt == altDown
-                && this.win == winDown;
-    }
-
-    /** Matching when Win is treated as not held, for callers that cannot observe it. */
-    public boolean matches(boolean shiftDown, boolean controlDown, boolean altDown) {
-        return this.matches(shiftDown, controlDown, altDown, false);
+                && other != null
+                && other.isBound()
+                && other.size() > this.size()
+                && this.isSubsetOf(other);
     }
 
     /**
-     * How the combination is shown, e.g. {@code Ctrl+Shift+R}.
+     * Whether the combination should fire, given every key currently held.
      *
-     * <p>The order is fixed so the same binding always reads the same way: Ctrl, Shift, Alt, Win, key.</p>
-     *
-     * @param keyDisplayName the already translated name of the main key
+     * <p>All of the combo's keys must be held, and no modifier outside the combo may be held. Ordinary keys
+     * outside the combo are ignored; see {@link #isShadowedBy} for how a shorter binding yields to a longer
+     * one that contains it.</p>
      */
-    public String display(String keyDisplayName) {
+    public boolean matches(Set<String> heldKeys) {
+        if (!this.isBound()) {
+            return false;
+        }
+
+        if (!heldKeys.containsAll(this.keys)) {
+            return false;
+        }
+
+        for (String held : heldKeys) {
+            if (MODIFIER_KEYS.contains(held) && !this.keys.contains(held)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** A copy with one more key appended, keeping the order. */
+    public KeyCombo plus(String keyName) {
+        List<String> built = new ArrayList<>(this.keys);
+
+        if (keyName != null && !keyName.isEmpty()) {
+            built.add(keyName);
+        }
+
+        return of(built);
+    }
+
+    /** How the combination reads, e.g. {@code Ctrl+Shift+R}. */
+    public String display(java.util.function.Function<String, String> keyNameToLabel) {
         if (!this.isBound()) {
             return "Unbound";
         }
 
-        return this.modifierPrefix() + keyDisplayName;
-    }
-
-    /** The modifier part on its own, e.g. {@code Ctrl+Shift}; empty when there is none. */
-    public String modifierPrefix() {
         StringBuilder builder = new StringBuilder();
 
-        if (this.control) {
-            builder.append("Ctrl+");
+        // Read modifiers first and the main key last, which is how players write a combination.
+        List<String> ordered = new ArrayList<>();
+
+        for (String key : this.keys) {
+            if (MODIFIER_KEYS.contains(key)) {
+                ordered.add(key);
+            }
         }
 
-        if (this.shift) {
-            builder.append("Shift+");
+        for (String key : this.keys) {
+            if (!MODIFIER_KEYS.contains(key)) {
+                ordered.add(key);
+            }
         }
 
-        if (this.alt) {
-            builder.append("Alt+");
-        }
+        for (String key : ordered) {
+            if (builder.length() > 0) {
+                builder.append('+');
+            }
 
-        if (this.win) {
-            builder.append("Win+");
+            builder.append(keyNameToLabel.apply(key));
         }
 
         return builder.toString();
-    }
-
-    /** The modifiers as a storage string, e.g. {@code ctrl+shift}; empty when there are none. */
-    public String modifierString() {
-        StringBuilder builder = new StringBuilder();
-
-        if (this.control) {
-            builder.append("ctrl+");
-        }
-
-        if (this.shift) {
-            builder.append("shift+");
-        }
-
-        if (this.alt) {
-            builder.append("alt+");
-        }
-
-        if (this.win) {
-            builder.append("win+");
-        }
-
-        if (builder.length() == 0) {
-            return "";
-        }
-
-        return builder.substring(0, builder.length() - 1);
-    }
-
-    /** Reads the storage string written by {@link #modifierString()}. */
-    public static KeyCombo parse(String keyName, String modifiers) {
-        String value = modifiers == null ? "" : modifiers.toLowerCase(java.util.Locale.ROOT);
-
-        return of(keyName,
-                value.contains("shift"),
-                value.contains("ctrl"),
-                value.contains("alt"),
-                value.contains("win"));
-    }
-
-    public KeyCombo withKey(String keyName) {
-        return KeyCombo.of(keyName, this.shift, this.control, this.alt, this.win);
-    }
-
-    /** A copy with the given modifiers replaced; the key is kept. */
-    public KeyCombo withModifiers(boolean shift, boolean control, boolean alt, boolean win) {
-        return KeyCombo.of(this.keyName, shift, control, alt, win);
     }
 
     @Override
@@ -211,24 +236,16 @@ public final class KeyCombo {
             return false;
         }
 
-        KeyCombo combo = (KeyCombo) other;
-
-        return this.shift == combo.shift
-                && this.control == combo.control
-                && this.alt == combo.alt
-                && this.win == combo.win
-                && this.keyName.equals(combo.keyName);
+        return this.keys.equals(((KeyCombo) other).keys);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.keyName, this.shift, this.control, this.alt, this.win);
+        return Objects.hash(this.keys);
     }
 
     @Override
     public String toString() {
-        return this.isBound()
-                ? this.modifierPrefix() + this.keyName
-                : "unbound";
+        return this.isBound() ? String.join("+", this.keys) : "unbound";
     }
 }

@@ -162,11 +162,27 @@ public final class GameInput {
     /** Records whether the mod owns a channel and writes the key flag only when that changes. */
     private void setKeyOwned(ActionChannel channel, boolean down) {
         if (this.owned[channel.ordinal()] == down) {
+            // Already in the wanted state, but vanilla may have cleared the flag behind our back:
+            // KeyMapping.releaseAll() runs whenever a screen opens and KeyMapping.setAll() on a mouse
+            // re-grab. Re-asserting keeps an active hold from going dead while the HUD still shows it on.
+            if (down && this.vanillaInputActive()) {
+                KeyMapping mapping = this.channelMapping(channel);
+
+                if (mapping != null && !mapping.isDown()) {
+                    this.setKeyDown(channel, true);
+                }
+            }
+
             return;
         }
 
         this.owned[channel.ordinal()] = down;
         this.setKeyDown(channel, down);
+    }
+
+    /** The vanilla mapping this channel drives. */
+    private KeyMapping channelMapping(ActionChannel channel) {
+        return channel == ActionChannel.ATTACK ? this.client.options.keyAttack : this.client.options.keyUse;
     }
 
     /** Sets or clears the {@code isDown} flag of the vanilla key mapping driven by a channel. */

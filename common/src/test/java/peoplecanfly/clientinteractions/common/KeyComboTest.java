@@ -4,191 +4,214 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class KeyComboTest {
+    /** Convenience: a combo from key names in order. */
+    private static KeyCombo combo(String... keys) {
+        return KeyCombo.of(List.of(keys));
+    }
+
+    /** Convenience: a set of held keys. */
+    private static Set<String> held(String... keys) {
+        return Set.of(keys);
+    }
+
     @Test
     @DisplayName("an unbound combination never matches")
     void unboundNeverMatches() {
         KeyCombo combo = KeyCombo.unbound();
 
         assertFalse(combo.isBound());
-        assertFalse(combo.matches(false, false, false));
-        assertFalse(combo.matches(true, true, true));
+        assertFalse(combo.matches(held()));
+        assertFalse(combo.matches(held("key.keyboard.a")));
     }
 
     @Test
-    @DisplayName("a plain key matches only with no modifiers held")
-    void plainKeyNeedsNoModifiers() {
-        KeyCombo combo = KeyCombo.of("key.keyboard.r");
+    @DisplayName("a single key matches only while that key is held")
+    void singleKey() {
+        KeyCombo combo = combo("key.keyboard.r");
 
-        assertTrue(combo.matches(false, false, false, false));
-        assertFalse(combo.matches(true, false, false, false), "Shift+R must not fire a plain R binding");
-        assertFalse(combo.matches(false, true, false, false));
-        assertFalse(combo.matches(false, false, true, false));
-        assertFalse(combo.matches(false, false, false, true));
+        assertTrue(combo.matches(held("key.keyboard.r")));
+        assertFalse(combo.matches(held()));
+        assertFalse(combo.matches(held("key.keyboard.t")));
     }
 
     @Test
-    @DisplayName("a combination matches only when the modifiers match exactly")
-    void combinationNeedsExactModifiers() {
-        KeyCombo combo = KeyCombo.of("key.keyboard.r", true, true, false);
+    @DisplayName("every key of the combination must be held")
+    void allKeysRequired() {
+        KeyCombo combo = combo("key.keyboard.a", "key.keyboard.c");
 
-        assertTrue(combo.matches(true, true, false));
-        assertFalse(combo.matches(true, false, false), "missing Ctrl");
-        assertFalse(combo.matches(false, true, false), "missing Shift");
-        assertFalse(combo.matches(true, true, true), "unexpected Alt");
+        assertTrue(combo.matches(held("key.keyboard.a", "key.keyboard.c")));
+        assertFalse(combo.matches(held("key.keyboard.a")));
+        assertFalse(combo.matches(held("key.keyboard.c")));
     }
 
     @Test
-    @DisplayName("Shift+R and R are different bindings")
-    void modifiersMakeTheBindingDistinct() {
-        KeyCombo plain = KeyCombo.of("key.keyboard.r");
-        KeyCombo shifted = KeyCombo.of("key.keyboard.r", true, false, false);
+    @DisplayName("order does not matter for matching")
+    void orderDoesNotMatter() {
+        KeyCombo combo = combo("key.keyboard.a", "key.keyboard.c");
 
-        assertTrue(plain.matches(false, false, false));
-        assertFalse(shifted.matches(false, false, false));
-
-        assertFalse(plain.matches(true, false, false));
-        assertTrue(shifted.matches(true, false, false));
-
-        assertFalse(plain.equals(shifted));
+        assertTrue(combo.matches(held("key.keyboard.c", "key.keyboard.a")));
     }
 
     @Test
-    @DisplayName("all four modifiers can be combined at once")
-    void allFourModifiers() {
-        KeyCombo combo = KeyCombo.of("key.keyboard.r", true, true, true, true);
+    @DisplayName("an unrelated ordinary key does not block the match")
+    void unrelatedOrdinaryKeysAreIgnored() {
+        KeyCombo combo = combo("key.keyboard.r");
 
-        assertTrue(combo.matches(true, true, true, true));
-        assertFalse(combo.matches(true, true, true, false), "Win missing");
-        assertFalse(combo.matches(true, true, false, true), "Alt missing");
-        assertEquals("Ctrl+Shift+Alt+Win+R", combo.display("R"));
+        // The player is always holding something, so W must not cancel a binding.
+        assertTrue(combo.matches(held("key.keyboard.r", "key.keyboard.w", "key.keyboard.space")));
     }
 
     @Test
-    @DisplayName("Win is a real modifier, not ignored")
-    void winIsMatched() {
-        KeyCombo withWin = KeyCombo.of("key.keyboard.r", false, false, false, true);
+    @DisplayName("an extra modifier does block the match")
+    void extraModifierBlocks() {
+        KeyCombo combo = combo("key.keyboard.r");
 
-        assertTrue(withWin.matches(false, false, false, true));
-        assertFalse(withWin.matches(false, false, false, false));
-
-        // A plain binding must not fire while Win is held either.
-        assertFalse(KeyCombo.of("key.keyboard.r").matches(false, false, false, true));
+        assertFalse(combo.matches(held("key.keyboard.r", "key.keyboard.left.shift")),
+                "Shift+R must not fire a plain R binding");
+        assertEquals("key.keyboard.r", combo.primaryKey());
     }
 
     @Test
-    @DisplayName("a mouse button is a valid main key")
-    void mouseButtonIsABinding() {
-        KeyCombo combo = KeyCombo.of("key.mouse.4");
+    @DisplayName("ordinary keys plus modifiers work together")
+    void ordinaryKeysWithModifiers() {
+        KeyCombo combo = combo("key.keyboard.left.control", "key.keyboard.a", "key.keyboard.c");
 
-        assertTrue(combo.isBound());
-        assertTrue(combo.isMouse());
-        assertTrue(combo.matches(false, false, false, false));
+        assertTrue(combo.matches(held("key.keyboard.left.control",
+                "key.keyboard.a", "key.keyboard.c")));
+        assertFalse(combo.matches(held("key.keyboard.a", "key.keyboard.c")),
+                "Ctrl is part of the binding");
+    }
+
+    @Test
+    @DisplayName("a longer binding shadows a shorter one it contains")
+    void longerBindingShadowsShorter() {
+        KeyCombo shortCombo = combo("key.keyboard.c");
+        KeyCombo longCombo = combo("key.keyboard.a", "key.keyboard.c");
+
+        assertTrue(shortCombo.isShadowedBy(longCombo),
+                "C must yield to A+C");
+        assertFalse(longCombo.isShadowedBy(shortCombo),
+                "A+C must not yield to C");
+    }
+
+    @Test
+    @DisplayName("a binding does not shadow an unrelated one")
+    void unrelatedBindingsDoNotShadow() {
+        KeyCombo c = combo("key.keyboard.c");
+        KeyCombo ab = combo("key.keyboard.a", "key.keyboard.b");
+
+        assertFalse(c.isShadowedBy(ab));
+        assertFalse(ab.isShadowedBy(c));
+    }
+
+    @Test
+    @DisplayName("equal-size combos never shadow each other")
+    void equalSizeNoShadow() {
+        KeyCombo ac = combo("key.keyboard.a", "key.keyboard.c");
+        KeyCombo ab = combo("key.keyboard.a", "key.keyboard.b");
+
+        assertFalse(ac.isShadowedBy(ab));
+    }
+
+    @Test
+    @DisplayName("a mouse button is a valid key, alone and in a combination")
+    void mouseButtons() {
+        KeyCombo alone = combo("key.mouse.4");
+
+        assertTrue(alone.isBound());
+        assertTrue(alone.isMouse());
+        assertTrue(alone.matches(held("key.mouse.4")));
         assertEquals("Mouse 4", KeyNames.readable("key.mouse.4"));
-        assertEquals("Left Click", KeyNames.readable("key.mouse.left"));
+
+        KeyCombo withCtrl = combo("key.keyboard.left.control", "key.mouse.left");
+        // The primary is the last key, which is the mouse button here.
+        assertTrue(withCtrl.isMouse());
+        assertTrue(withCtrl.matches(held("key.keyboard.left.control", "key.mouse.left")));
     }
 
     @Test
-    @DisplayName("a mouse button can carry modifiers like any key")
-    void mouseButtonWithModifiers() {
-        KeyCombo combo = KeyCombo.of("key.mouse.left", false, true, false, false);
-
-        assertTrue(combo.isMouse());
-        assertTrue(combo.matches(false, true, false, false));
-        assertFalse(combo.matches(false, false, false, false));
-        assertEquals("Ctrl+Left Click", combo.display("Left Click"));
+    @DisplayName("the last key pressed is the primary")
+    void primaryIsLast() {
+        assertEquals("key.keyboard.c", combo("key.keyboard.a", "key.keyboard.c").primaryKey());
+        assertEquals("key.keyboard.k", combo("key.keyboard.k").primaryKey());
+        assertEquals("", KeyCombo.unbound().primaryKey());
     }
 
     @Test
-    @DisplayName("display puts the modifiers in a stable order")
+    @DisplayName("display reads modifiers first, then the main key")
     void displayOrder() {
-        assertEquals("R", KeyCombo.of("key.keyboard.r").display("R"));
-        assertEquals("Shift+R", KeyCombo.of("key.keyboard.r", true, false, false).display("R"));
-        assertEquals("Ctrl+R", KeyCombo.of("key.keyboard.r", false, true, false).display("R"));
-        assertEquals("Alt+R", KeyCombo.of("key.keyboard.r", false, false, true).display("R"));
-        assertEquals("Win+R", KeyCombo.of("key.keyboard.r", false, false, false, true).display("R"));
-        assertEquals("Unbound", KeyCombo.unbound().display("R"));
+        assertEquals("R", combo("key.keyboard.r").display(KeyNames::readable));
+        assertEquals("Left Shift+R",
+                combo("key.keyboard.left.shift", "key.keyboard.r").display(KeyNames::readable));
+        assertEquals("Left Ctrl+Left Shift+R",
+                combo("key.keyboard.left.control", "key.keyboard.left.shift", "key.keyboard.r")
+                        .display(KeyNames::readable));
+        assertEquals("A+C", combo("key.keyboard.a", "key.keyboard.c").display(KeyNames::readable));
+        assertEquals("Unbound", KeyCombo.unbound().display(KeyNames::readable));
     }
 
     @Test
-    @DisplayName("the storage string round-trips every modifier combination")
-    void storageRoundTrip() {
-        for (int mask = 0; mask < 16; mask++) {
-            boolean shift = (mask & 1) != 0;
-            boolean control = (mask & 2) != 0;
-            boolean alt = (mask & 4) != 0;
-            boolean win = (mask & 8) != 0;
+    @DisplayName("the legacy modifier-flag shape still builds a set")
+    void legacyShape() {
+        KeyCombo combo = KeyCombo.of("key.keyboard.r", true, true, false, false);
 
-            KeyCombo combo = KeyCombo.of("key.keyboard.r", shift, control, alt, win);
-            KeyCombo restored = KeyCombo.parse(combo.keyName(), combo.modifierString());
-
-            assertEquals(combo, restored, "mask " + mask);
-        }
+        assertTrue(combo.keys().contains("key.keyboard.left.control"));
+        assertTrue(combo.keys().contains("key.keyboard.left.shift"));
+        assertFalse(combo.keys().contains("key.keyboard.left.alt"));
+        assertEquals("key.keyboard.r", combo.primaryKey());
     }
 
     @Test
-    @DisplayName("a missing modifier string parses as no modifiers")
-    void emptyModifiersParse() {
-        assertEquals(KeyCombo.of("key.keyboard.r"), KeyCombo.parse("key.keyboard.r", ""));
-        assertEquals(KeyCombo.of("key.keyboard.r"), KeyCombo.parse("key.keyboard.r", null));
-    }
-
-    @Test
-    @DisplayName("equality covers the key and every modifier")
+    @DisplayName("equality compares the exact key list")
     void equality() {
-        assertEquals(KeyCombo.of("key.keyboard.r", true, false, false),
-                KeyCombo.of("key.keyboard.r", true, false, false));
-        assertEquals(KeyCombo.of("key.keyboard.r", true, false, false).hashCode(),
-                KeyCombo.of("key.keyboard.r", true, false, false).hashCode());
+        assertEquals(combo("key.keyboard.a", "key.keyboard.c"), combo("key.keyboard.a", "key.keyboard.c"));
+        assertEquals(combo("key.keyboard.a", "key.keyboard.c").hashCode(),
+                combo("key.keyboard.a", "key.keyboard.c").hashCode());
 
-        assertFalse(KeyCombo.of("key.keyboard.r").equals(KeyCombo.of("key.keyboard.t")));
-        assertFalse(KeyCombo.of("key.keyboard.r", true, false, false)
-                .equals(KeyCombo.of("key.keyboard.r", false, true, false)));
-        assertFalse(KeyCombo.of("key.keyboard.r", false, false, false, true)
-                .equals(KeyCombo.of("key.keyboard.r")));
+        // Order is part of identity because the last key is the primary.
+        assertFalse(combo("key.keyboard.a", "key.keyboard.c")
+                .equals(combo("key.keyboard.c", "key.keyboard.a")));
+        assertFalse(combo("key.keyboard.a").equals(combo("key.keyboard.b")));
     }
 
     @Test
-    @DisplayName("an empty key name is treated as unbound")
-    void emptyIsUnbound() {
+    @DisplayName("duplicate keys are collapsed")
+    void duplicatesCollapsed() {
+        assertEquals(List.of("key.keyboard.a"), combo("key.keyboard.a", "key.keyboard.a").keys());
+    }
+
+    @Test
+    @DisplayName("an empty key name is ignored")
+    void emptyIgnored() {
         assertFalse(KeyCombo.of("").isBound());
-        assertFalse(KeyCombo.of(null).isBound());
-        assertFalse(KeyCombo.of("", true, true, true, true).isBound());
+        assertFalse(KeyCombo.of((String) null).isBound());
+        assertEquals(List.of("key.keyboard.a"), combo("", "key.keyboard.a").keys());
+    }
+
+    @Test
+    @DisplayName("modifier keys are recognised")
+    void modifiersRecognised() {
+        assertTrue(KeyCombo.isModifierKey("key.keyboard.left.shift"));
+        assertTrue(KeyCombo.isModifierKey("key.keyboard.right.control"));
+        assertTrue(KeyCombo.isModifierKey("key.keyboard.left.win"));
+        assertFalse(KeyCombo.isModifierKey("key.keyboard.a"));
+        assertFalse(KeyCombo.isModifierKey("key.mouse.left"));
     }
 
     @Test
     @DisplayName("readable names fall back sensibly")
     void readableNames() {
-        assertEquals("R", KeyNames.readable("key.keyboard.r"));
+        assertEquals("A", KeyNames.readable("key.keyboard.a"));
         assertEquals("F5", KeyNames.readable("key.keyboard.f5"));
         assertEquals("Unbound", KeyNames.readable(""));
         assertEquals("Unbound", KeyNames.readable("key.keyboard.unknown"));
         assertEquals("Left Shift", KeyNames.readable("key.keyboard.left.shift"));
-        assertEquals("Left Win", KeyNames.readable("key.keyboard.left.win"));
-    }
-
-    @Test
-    @DisplayName("modifier keys are recognised so they cannot become a main key")
-    void modifiersAreRecognised() {
-        assertTrue(KeyNames.isModifier("key.keyboard.left.shift"));
-        assertTrue(KeyNames.isModifier("key.keyboard.right.control"));
-        assertTrue(KeyNames.isModifier("key.keyboard.left.alt"));
-        assertTrue(KeyNames.isModifier("key.keyboard.left.win"));
-        assertFalse(KeyNames.isModifier("key.keyboard.r"));
-        assertFalse(KeyNames.isModifier("key.mouse.left"));
-        assertFalse(KeyNames.isModifier(""));
-        assertFalse(KeyNames.isModifier(null));
-    }
-
-    @Test
-    @DisplayName("mouse names are recognised and are not modifiers")
-    void mouseNames() {
-        assertTrue(KeyNames.isMouse("key.mouse.left"));
-        assertTrue(KeyNames.isMouse("key.mouse.8"));
-        assertFalse(KeyNames.isMouse("key.keyboard.r"));
-        assertFalse(KeyNames.isMouse(null));
+        assertEquals("Left Click", KeyNames.readable("key.mouse.left"));
     }
 }

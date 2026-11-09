@@ -260,7 +260,7 @@ public final class ConfigScreen extends Screen {
         }
     }
 
-    /** How the bound combination reads, e.g. {@code Shift+Ctrl+R} or {@code Ctrl+Left Click}. */
+    /** How the bound combination reads, e.g. {@code Ctrl+Shift+R} or {@code Ctrl+Left Click}. */
     String keyDisplay(Feature feature) {
         KeyCombo combo = this.mod.config().key(feature);
 
@@ -268,18 +268,8 @@ public final class ConfigScreen extends Screen {
             return "Unbound";
         }
 
-        return combo.display(this.keyLabel(feature, combo));
-    }
-
-    /** The translated name of the main key, falling back to a readable form. */
-    private String keyLabel(Feature feature, KeyCombo combo) {
-        KeyMapping mapping = this.mod.keyFor(feature);
-
-        if (mapping != null && !mapping.isUnbound()) {
-            return mapping.getTranslatedKeyMessage().getString();
-        }
-
-        return peoplecanfly.clientinteractions.common.KeyNames.readable(combo.keyName());
+        // Each key is translated on its own, so a combination shows every key by its own name.
+        return combo.display(key -> peoplecanfly.clientinteractions.common.KeyNames.readable(key));
     }
 
     /** Switches to the other channel's page; used by the button and by the game test. */

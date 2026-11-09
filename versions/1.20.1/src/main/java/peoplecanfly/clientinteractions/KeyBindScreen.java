@@ -1,9 +1,8 @@
 package peoplecanfly.clientinteractions;
 
 import com.mojang.blaze3d.platform.InputConstants;
-import java.util.EnumSet;
-import java.util.Set;
-import net.minecraft.client.KeyMapping;
+import java.util.ArrayList;
+import java.util.List;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -14,27 +13,24 @@ import peoplecanfly.clientinteractions.common.KeyNames;
 import peoplecanfly.clientinteractions.common.StatusText;
 
 /**
- * Captures one key <em>or mouse button</em>, with modifiers, and assigns it to one feature.
+ * Builds a hotkey out of any keys the player presses, in order.
  *
- * <h2>How a combination is captured</h2>
- * <p>Modifiers are collected from the order the keys go down, not from a bit mask and not by polling. The
- * screen watches every key press; each modifier it sees is remembered, and the first non-modifier press
- * ends the combination. Two independent reasons make this the only dependable approach:</p>
+ * <h2>How a combination is built</h2>
+ * <p>Every press is appended to a list, so {@code Ctrl}, {@code Shift}, {@code Alt} and {@code R} build
+ * {@code Ctrl+Shift+Alt+R} exactly as pressed. Any key may take part - an ordinary letter, a modifier, or a
+ * mouse button - because the combination is a set of keys held together, not a key plus modifier flags.</p>
  *
- * <ul>
- *   <li>Vanilla queues key events to the main thread, so polling the keyboard while handling an event can
- *       see a modifier the user already released.</li>
- *   <li>The modifier bits inside {@code KeyEvent} come from the platform layer and are not guaranteed to
- *       be populated - some test harnesses inject them as zero. Order of presses has no such dependency.</li>
- * </ul>
+ * <p>Unlike the previous design, a press does not end the capture. The player keeps adding keys and presses
+ * <b>Done</b> to accept the combination, or <b>Cancel</b> to discard it. That is what makes combinations of
+ * ordinary keys possible: with an automatic commit, the first letter would always end the capture.</p>
  *
- * <p>Because the modifiers are recorded here rather than read from the current state, releasing them
- * before the main key arrives cannot truncate the combination, which is what used to turn {@code Ctrl+Shift+K}
- * into a plain {@code K}.</p>
+ * <h2>Why order is recorded</h2>
+ * <p>The last key becomes the one vanilla is told about, because a {@code KeyMapping} can only own a single
+ * key. It is also the key the player thinks of as "the" key.</p>
  *
  * <h2>Colours</h2>
- * <p>Every text colour carries an explicit alpha of {@code FF}. Vanilla skips drawing text whose colour
- * has zero alpha from 1.21.10 on, so a plain {@code 0xFFFFFF} rendered nothing.</p>
+ * <p>Every text colour carries an explicit alpha of {@code FF}. Vanilla skips drawing text whose colour has
+ * zero alpha from 1.21.10 on, so a plain {@code 0xFFFFFF} rendered nothing.</p>
  */
 public final class KeyBindScreen extends Screen {
     private static final int TEXT = 0xFFFFFFFF;
@@ -47,39 +43,47 @@ public final class KeyBindScreen extends Screen {
     private final ClientInteractionsClient mod;
     private final Feature feature;
 
-    /** Set when a press cannot be used as a binding, so the screen can explain instead of ignoring it. */
+    /** Set when a press cannot be used, so the screen can explain instead of ignoring it. */
     private String notice = "";
 
-    /** Modifiers seen going down since the screen opened, in press order. */
-    private final Set<Modifier> captured = EnumSet.noneOf(Modifier.class);
-
-    /** The four modifiers a combination can carry. */
-    private enum Modifier {
-        SHIFT, CONTROL, ALT, WIN
-    }
+    /** The keys captured so far, in press order. */
+    private final List<String> captured = new ArrayList<>();
 
     public KeyBindScreen(Screen parent, ClientInteractionsClient mod, Feature feature) {
         super(Component.literal("Rebind " + feature.label()));
         this.parent = parent;
         this.mod = mod;
         this.feature = feature;
+
+        // Start from whatever is bound now, so a combination can be extended rather than retyped.
+        this.captured.addAll(this.mod.config().key(feature).keys());
     }
 
     @Override
     protected void init() {
         this.clearWidgets();
 
-        this.addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> this.onClose())
-                .bounds(this.width / 2 - 100, this.buttonTop(), 96, 20)
+        int buttonTop = this.buttonTop();
+
+        this.addRenderableWidget(Button.builder(Component.literal("Done"), b -> this.apply())
+                .bounds(this.width / 2 - 152, buttonTop, 96, 20)
                 .build());
 
-        this.addRenderableWidget(Button.builder(Component.literal("Clear"), b -> this.apply(KeyCombo.unbound()))
-                .bounds(this.width / 2 + 4, this.buttonTop(), 96, 20)
+        this.addRenderableWidget(Button.builder(Component.literal("Undo"), b -> this.undo())
+                .bounds(this.width / 2 - 48, buttonTop, 96, 20)
+                .build());
+
+        this.addRenderableWidget(Button.builder(Component.literal("Clear"), b -> this.clear())
+                .bounds(this.width / 2 + 56, buttonTop, 96, 20)
+                .build());
+
+        this.addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> this.onClose())
+                .bounds(this.width / 2 - 48, buttonTop + 24, 96, 20)
                 .build());
     }
 
     private int buttonTop() {
-        return Math.max(40, this.height - 40);
+        return Math.max(40, this.height - 76);
     }
 
     @Override
@@ -96,14 +100,13 @@ public final class KeyBindScreen extends Screen {
         graphics.drawCenteredString(this.font, StatusText.keyPrompt(this.feature), center, y, DIM);
         y += LINE + 2;
 
-        // What is bound right now, so the screen is never blank about the current state.
-        graphics.drawCenteredString(this.font,
-                Component.literal("Now: " + this.keyDisplay()), center, y, ACCENT);
-        y += LINE + 8;
+        graphics.drawCenteredString(this.font, Component.literal("Saved: " + this.boundDisplay()),
+                center, y, DIM);
+        y += LINE + 10;
 
-        // What has been pressed so far: this is the feedback that proves modifiers are being collected.
-        graphics.drawCenteredString(this.font,
-                Component.literal(this.capturedSoFar()), center, y, TEXT);
+        // The combination being built, which is the feedback that proves each press was recorded.
+        graphics.drawCenteredString(this.font, Component.literal("New: " + this.capturedDisplay()),
+                center, y, ACCENT);
         y += LINE + 2;
 
         if (!this.notice.isEmpty()) {
@@ -113,75 +116,42 @@ public final class KeyBindScreen extends Screen {
 
         graphics.drawCenteredString(this.font, Component.literal(KeyNames.bindingHint()), center, y, DIM);
         y += LINE;
-        graphics.drawCenteredString(this.font, Component.literal("Esc or Clear unbinds"), center, y, DIM);
+        graphics.drawCenteredString(this.font,
+                Component.literal("Press any keys, then Done - Esc cancels"), center, y, DIM);
     }
 
-    /** What the user has pressed so far, e.g. {@code Ctrl+Shift+...}. */
-    private String capturedSoFar() {
-        String prefix = this.prefix();
+    private String capturedDisplay() {
+        if (this.captured.isEmpty()) {
+            return "(nothing yet)";
+        }
 
-        return prefix.isEmpty() ? "Press a key or click a mouse button" : prefix + "...";
+        return KeyCombo.of(this.captured).display(KeyNames::readable);
     }
 
-    /** The modifiers captured so far, in the order they read best. */
-    private String prefix() {
-        StringBuilder builder = new StringBuilder();
-
-        if (this.captured.contains(Modifier.CONTROL)) {
-            builder.append("Ctrl+");
-        }
-
-        if (this.captured.contains(Modifier.SHIFT)) {
-            builder.append("Shift+");
-        }
-
-        if (this.captured.contains(Modifier.ALT)) {
-            builder.append("Alt+");
-        }
-
-        if (this.captured.contains(Modifier.WIN)) {
-            builder.append("Win+");
-        }
-
-        return builder.toString();
-    }
-
-    private String keyDisplay() {
+    private String boundDisplay() {
         KeyCombo combo = this.mod.config().key(this.feature);
 
-        if (!combo.isBound()) {
-            return "Unbound";
-        }
-
-        return combo.display(KeyNames.readable(combo.keyName()));
+        return combo.isBound() ? combo.display(KeyNames::readable) : "Unbound";
     }
 
     /**
-     * Watches a key press, recording modifiers and finishing the combination on the first real key.
+     * Appends every press to the combination.
      *
-     * <p>A modifier alone never closes the screen: it is remembered and the prompt updates. That is the
-     * difference between "my combination was captured" and "the dialog closed after my first key".</p>
+     * <p>Nothing is committed here: capture continues until Done. That is what allows ordinary keys to be
+     * part of a combination, since an automatic commit would end the capture on the first letter.</p>
      */
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) {
-            this.apply(KeyCombo.unbound());
+            // Escape here means "leave without saving", not "clear": Clear has its own button, and
+            // silently deleting the binding on cancel would be surprising.
+            this.onClose();
             return true;
         }
 
         InputConstants.Key key = InputConstants.Type.KEYSYM.getOrCreate(keyCode);
-        String name = key.getName();
 
-        Modifier modifier = modifierOf(name);
-
-        if (modifier != null) {
-            this.captured.add(modifier);
-            this.notice = "";
-            this.rebuildWidgets();
-            return true;
-        }
-
-        this.apply(this.build(name));
+        this.add(key.getName());
         return true;
     }
 
@@ -195,45 +165,52 @@ public final class KeyBindScreen extends Screen {
 
         InputConstants.Key key = InputConstants.Type.MOUSE.getOrCreate(button);
 
-        this.apply(this.build(key.getName()));
+        this.add(key.getName());
         return true;
     }
 
-    /** Builds the combination from the keys captured so far plus the main key just pressed. */
-    private KeyCombo build(String mainKey) {
-        return KeyCombo.of(mainKey,
-                this.captured.contains(Modifier.SHIFT),
-                this.captured.contains(Modifier.CONTROL),
-                this.captured.contains(Modifier.ALT),
-                this.captured.contains(Modifier.WIN));
+    /** Records one key, ignoring repeats and unusable names. */
+    private void add(String keyName) {
+        if (keyName == null || keyName.isEmpty() || keyName.equals("key.keyboard.unknown")) {
+            return;
+        }
+
+        if (this.captured.contains(keyName)) {
+            this.notice = KeyNames.readable(keyName) + " is already part of this combination";
+            this.rebuildWidgets();
+            return;
+        }
+
+        this.captured.add(keyName);
+        this.notice = "";
+        this.rebuildWidgets();
     }
 
-    /** Which modifier a key name is, or {@code null} when it is an ordinary key. */
-    private static Modifier modifierOf(String keyName) {
-        switch (keyName) {
-            case "key.keyboard.left.shift":
-            case "key.keyboard.right.shift":
-                return Modifier.SHIFT;
-            case "key.keyboard.left.control":
-            case "key.keyboard.right.control":
-                return Modifier.CONTROL;
-            case "key.keyboard.left.alt":
-            case "key.keyboard.right.alt":
-                return Modifier.ALT;
-            case "key.keyboard.left.win":
-            case "key.keyboard.right.win":
-                return Modifier.WIN;
-            default:
-                return null;
+    private void undo() {
+        if (!this.captured.isEmpty()) {
+            this.captured.remove(this.captured.size() - 1);
+            this.notice = "";
+            this.rebuildWidgets();
         }
     }
 
-    /** Stores the combination and returns to the list. */
-    private void apply(KeyCombo combo) {
-        this.mod.config().setKey(this.feature, combo);
+    private void clear() {
+        this.captured.clear();
+        this.notice = "";
+        this.rebuildWidgets();
+    }
+
+    /** Stores the captured combination and returns to the list. */
+    private void apply() {
+        this.mod.config().setKey(this.feature, KeyCombo.of(this.captured));
         this.mod.applyKeyBinding(this.feature);
         this.mod.saveConfig();
         this.minecraft.setScreen(this.parent);
+    }
+
+    /** Accepts the current combination; exposed so a test can drive the Done button's action. */
+    void accept() {
+        this.apply();
     }
 
     @Override

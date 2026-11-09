@@ -70,6 +70,11 @@ public final class GameInput {
         if (hold != wasOwned) {
             this.owned[channel.ordinal()] = hold;
             this.setKeyDown(channel, hold);
+        } else if (hold) {
+            // The mod believes it is holding, but vanilla clears isDown whenever a screen opens
+            // (KeyMapping.releaseAll) and on a mouse grab. Without re-asserting it here the hold would
+            // stay dead for the rest of the activation, with the HUD still reporting it as active.
+            this.reassertHold(channel);
         }
 
         if (hold) {
@@ -174,6 +179,36 @@ public final class GameInput {
                 // With a screen open the vanilla loop will not release the item for us.
                 this.client.gameMode.releaseUsingItem(player);
             }
+        }
+    }
+
+    /**
+     * The vanilla mapping this channel drives.
+     */
+    private KeyMapping channelMapping(ActionChannel channel) {
+        return channel == ActionChannel.ATTACK ? this.client.options.keyAttack : this.client.options.keyUse;
+    }
+
+    /**
+     * Re-writes {@code isDown} while the mod owns a hold.
+     *
+     * <p>Vanilla resets every key's down flag when a screen opens, and toggles it on a mouse re-grab.
+     * Writing it again each tick keeps a long hold working across those events, and is harmless when the
+     * flag is already correct.</p>
+     *
+     * <p>Only done with no screen open: writing the flag while a GUI is up would inject attacks into the
+     * inventory. With a screen open the hold simply resumes once it closes, which is the same behaviour as
+     * a real held mouse button.</p>
+     */
+    private void reassertHold(ActionChannel channel) {
+        if (!this.vanillaInputActive()) {
+            return;
+        }
+
+        KeyMapping mapping = this.channelMapping(channel);
+
+        if (mapping != null && !mapping.isDown()) {
+            this.setKeyDown(channel, true);
         }
     }
 

@@ -3,8 +3,8 @@
 **English** | [中文](#中文说明)
 
 > **Reading guide**
-> This English section is 1 583 words (8 093 characters without spaces) and takes about 6 minutes.
-> The Chinese section is 4 123 characters and takes about 8 minutes. The full [`LICENSE`](LICENSE) is
+> This English section is 1 681 words (8 590 characters without spaces) and takes about 6 minutes.
+> The Chinese section is 4 454 characters and takes about 8 minutes. The full [`LICENSE`](LICENSE) is
 > 1 212 characters (197 words).
 
 A client-side Fabric mod with eight independent automation features for Minecraft's two mouse buttons,
@@ -79,8 +79,9 @@ bypass the checks.
 
 Timers keep running in every feature.
 
-* **Attack** pauses, as in vanilla: a screen makes vanilla discard attack input. A hold clears only the
-  "screen is open" marker so it resumes when the screen closes.
+* **Attack** pauses, as in vanilla: a screen makes vanilla discard attack input. A hold resumes when the
+  screen closes; it is deliberately not forced while a GUI is open, since that would inject attacks into
+  the inventory.
 * **Use** keeps working, because you asked for that. A running use feature can still act on the world
   while your inventory is open.
 
@@ -97,17 +98,26 @@ the row spacing shrinks on a short window so the last row never sits under Done.
 
 ### Combinations and mouse buttons
 
-A hotkey can be any keyboard key or any mouse button (left, right, middle, 4-8), alone or in any
-combination of **Ctrl, Shift, Alt and Win**, e.g. `Ctrl+Shift+Alt+R` or `Ctrl+Left Click`. Click the key
-button, hold the modifiers, then press the key or click the button. The screen shows what is bound now,
-which modifiers are held at that instant, and what a modifier pressed alone means.
+A hotkey is a **set of keys held together**. Any keyboard key or any mouse button (left, right, middle,
+4-8) may take part, in any mix: `Ctrl+R`, `Ctrl+Shift+Alt+R`, `A+C` and `Ctrl+Left Click` are all the
+same kind of binding. Modifiers are not special, they are simply keys.
 
-Matching is exact: `R` does not fire while Shift is held, and `Shift+R` does not fire without it, so one
-press can never trigger two features. `Esc` or the `Clear` button leaves the feature unbound.
+Open the key button, press the keys in any order, then press **Done**. Nothing is committed until Done,
+so multi-key combinations like `A+C` can be built; **Undo** removes the last key and **Clear** empties
+the set. The screen shows the saved binding and the one being built.
 
-Modifiers are taken from the order you press them: each one you hold is collected, and the first
-ordinary key ends the combination. That is why releasing a modifier early cannot shorten it, and why
-any number of them works.
+Matching rules:
+
+* Every key of the binding must be held.
+* Holding a Ctrl/Shift/Alt/Win that is **not** part of the binding blocks it, so `R` does not fire while
+  Shift is down.
+* Other ordinary keys are ignored, since you are always holding something (W, space, ...).
+
+### Priority between overlapping bindings
+
+If one feature owns `A+C` and another owns plain `C`, pressing both keys runs **only** the `A+C`
+feature. The longer combination takes precedence, and the shorter one works again once the longer is
+released. This is what keeps a single key usable both alone and as part of a combination.
 
 A rebind takes effect immediately, without restarting the game.
 
@@ -156,15 +166,18 @@ classpath regardless of the declaration.
 
 ## Tests
 
-* 48 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
-  master switch, starting with the master switch off, combination matching including mouse buttons and
-  Win, fast click being a multiplier, the periodic-click tick spread, and a 7000 tick drift check.
+* 51 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
+  master switch, starting with the master switch off, combination matching (sets of keys, mouse buttons,
+  priority between overlapping bindings), fast click being a multiplier, the periodic-click tick spread,
+  and a 7000 tick drift check.
 * 1.21.10, 1.21.11 and 26.3 have in-game tests that boot a real client, create a world, and assert
   holds, clicks, one-tick-per-tick timing, mutual exclusion, the master switch, screen behaviour,
-  combination matching, that a rebind fires without a restart, that a mouse button binds too, that a typed
-  number reaches the engine and is clamped, that fast click injects the extra clicks for a real press,
-  that a three-modifier combination is captured whole, and that both screens draw visible text with no
-  widget overlapping another or leaving the screen at a small gui.
+  combination matching, that a multi-key combination is captured whole, that it fires on a real press
+  without toggling itself back off, that a longer combination blocks a shorter one it contains, that a
+  hold resumes after a screen closes, that a rebind fires without a restart, that a mouse button binds
+  too, that a typed number reaches the engine and is clamped, that fast click injects the extra clicks
+  for a real press, and that both screens draw visible text with no widget overlapping another or
+  leaving the screen at a small gui.
 * 1.19.4, 1.20.1 and 1.21.1 have no client gametest API; they are verified by compiling, packaging and
   starting the game.
 
@@ -204,7 +217,7 @@ if something is missing.
 **[English](#client-interactions)** | **中文**
 
 > **阅读指引**
-> 中文部分 4 123 字（不计空白），大约需要 8 分钟；英文部分 1 583 词（不计空格 8 093 字符），
+> 中文部分 4 454 字（不计空白），大约需要 8 分钟；英文部分 1 681 词（不计空格 8 590 字符），
 > 大约需要 6 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
 
 一个客户端 Fabric 模组，为 Minecraft 的两个鼠标键——**攻击**（左键）与**使用**（右键）——提供
@@ -273,8 +286,8 @@ if something is missing.
 
 所有功能的计时都继续。
 
-* **攻击**会暂停，与原版一致：界面打开时原版会丢弃攻击输入。长按时模组只清除「界面已打开」
-  这个标记，界面关闭后即可恢复。
+* **攻击**会暂停，与原版一致：界面打开时原版会丢弃攻击输入。界面关闭后长按会恢复；
+  界面打开期间刻意不强行按键，否则会把攻击注入到背包界面里。
 * **使用**会继续工作（按你的要求）。背包打开时，正在运行的使用功能仍会作用于世界。
 
 ## 配置界面
@@ -289,15 +302,25 @@ if something is missing.
 
 ### 组合键与鼠标键
 
-快捷键可以是任意键盘键或任意鼠标键（左键、右键、中键、4 到 8），并可与
-**Ctrl、Shift、Alt、Win** 任意组合，例如 `Ctrl+Shift+Alt+R` 或 `Ctrl+鼠标左键`。
-点一下按键按钮，按住修饰键，再按键或点鼠标键即可。界面会显示当前绑定、此刻按住
-的修饰键，以及单独按下修饰键时的提示。
+快捷键是一组**同时按住**的键。任意键盘键或任意鼠标键（左键、右键、中键、4 到 8）
+都能参与，可以随意混搭：`Ctrl+R`、`Ctrl+Shift+Alt+R`、`A+C`、`Ctrl+鼠标左键`
+都是同一类绑定。修饰键并不特殊，它们只是普通的键。
 
-匹配是严格的：按住 Shift 不会触发 `R`，不按 Shift 也不会触发 `Shift+R`，所以一次
-按键绝不会同时触发两个功能。Escape 或 `Clear` 按钮可取消绑定。
+点开按键按钮，按任意顺序按下这些键，然后按 **Done**。按下 Done 之前不会提交，所以
+`A+C` 这类多键组合可以完整录入；**Undo** 删掉最后一个键，**Clear** 清空。界面会同时
+显示已保存的绑定和正在录入的绑定。
 
-改键立即生效，不需要重启游戏。
+匹配规则：
+
+* 绑定里的每个键都必须按住。
+* 按住不属于该绑定的 Ctrl/Shift/Alt/Win 会使其失效，所以按着 Shift 时 `R` 不会触发。
+* 其它普通键会被忽略，因为你手上总按着点什么（W、空格等）。
+
+### 重叠绑定之间的优先级
+
+如果一个功能占用了 `A+C`，另一个占用了单独的 `C`，那么同时按下这两个键时**只会**执行
+`A+C` 的功能。长组合优先，松开后短组合又能正常工作。这样同一个键既能单独用，也能作为
+组合的一部分。
 
 ### 数值
 
@@ -342,11 +365,14 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 
 ## 测试
 
-* 48 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
-  组合键匹配（含鼠标键与 Win）、快速连点的倍率语义、周期点击的跨刻分布，以及 7000 刻的
-  漂移检查。
+* 51 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
+  组合键匹配（键集合、鼠标键、重叠绑定之间的优先级）、快速连点的倍率语义、周期点击的
+  跨刻分布，以及 7000 刻的漂移检查。
 * 1.21.10、1.21.11、26.3 有游戏内测试：启动真实客户端、创建世界，断言长按、点击、每刻一步的
-  计时、互斥、总开关、界面行为、组合键匹配、改键无需重启即生效、鼠标键可绑定、输入的
+  计时、互斥、总开关、界面行为、组合键匹配、多键组合被完整捕获、按下后不会自我抵消、
+  长组合会屏蔽包含的短绑定、界面关闭后长按会恢复、改键无需重启即生效、鼠标键可绑定、
+  输入的数值会进入引擎并被钳制、快速连点确实为一次真实按下注入了额外点击，以及在较小
+  GUI 下两个界面都能画出可见文字、且没有按钮互相重叠或跑出屏幕。
   数值会进入引擎并被钳制、快速连点确实为一次真实按下注入了额外点击、三修饰键组合被
   完整捕获，以及在较小 GUI 下两个界面都能画出可见文字、且没有按钮互相重叠或跑出屏幕。
 * 1.19.4、1.20.1、1.21.1 没有客户端 gametest API，通过编译、打包和启动游戏验证。
