@@ -51,6 +51,9 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     /** Whether each channel's vanilla button was down on the previous tick, to detect a fresh press. */
     private final boolean[] playerKeyHeld = new boolean[ActionChannel.values().length];
 
+    /** Whether the old ] default has been cleared from the loaded key bindings. */
+    private boolean cleanedOldDefault;
+
     public static ClientInteractionsClient get() {
         return instance;
     }
@@ -65,6 +68,10 @@ public final class ClientInteractionsClient implements ClientModInitializer {
 
     public GameInput input() {
         return this.input;
+    }
+
+    public KeyMapping openConfigKey() {
+        return this.openConfigKey;
     }
 
     public KeyMapping keyFor(Feature feature) {
@@ -164,11 +171,15 @@ public final class ClientInteractionsClient implements ClientModInitializer {
                     KeyMapping.Category.MISC)));
         }
 
+        // Unbound by default: the mod adds no global hotkey of its own. Open the config from Mod Menu, or
+        // bind this key in the controls screen if a hotkey is wanted.
         this.openConfigKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.clientinteractions.open_config",
                 InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_RIGHT_BRACKET,
+                UNBOUND.getValue(),
                 KeyMapping.Category.MISC));
+
+        this.clearOldConfigDefault();
 
         for (Feature feature : Feature.values()) {
             this.applyKeyBinding(feature);
@@ -183,6 +194,12 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     private void onClientTick() {
         Minecraft client = Minecraft.getInstance();
 
+        // Vanilla loads the saved key bindings into the mappings during startup, after this entrypoint
+        if (!this.cleanedOldDefault) {
+            this.cleanedOldDefault = true;
+            this.clearOldConfigDefault();
+        }
+
         if (client.player == null || client.level == null) {
             this.engine.stopAll();
             this.playerKeyHeld[ActionChannel.ATTACK.ordinal()] = false;
@@ -192,16 +209,24 @@ public final class ClientInteractionsClient implements ClientModInitializer {
 
         Modifiers held = new Modifiers(client);
 
+        boolean shift = held.shift();
+        boolean control = held.control();
+        boolean alt = held.alt();
+        boolean win = held.win();
+
         for (Feature feature : Feature.values()) {
             KeyMapping key = this.featureKeys.get(feature);
 
+            // The press count is read without draining it first, so the modifiers can be checked against
+            // the moment the key actually went down. Reading them after consumeClick() meant a quick tap
+            // was evaluated after the modifier had already been released, and the press was thrown away.
             while (key != null && key.consumeClick()) {
                 KeyCombo combo = this.config.key(feature);
 
                 // Reacting only to the main key, then checking the modifiers, is what makes Shift+R and
                 // R different bindings. A press whose modifiers do not match is ignored rather than
                 // toggling the wrong feature.
-                if (combo.matches(held.shift(), held.control(), held.alt(), held.win())) {
+                if (combo.matches(shift, control, alt, win)) {
                     this.toggleFeature(feature);
                 }
             }
@@ -244,6 +269,25 @@ public final class ClientInteractionsClient implements ClientModInitializer {
 
         if (times > 1) {
             this.input.playerClick(channel, times);
+        }
+    }
+
+    /**
+     * Removes the {@code ]} default that older builds shipped for opening the config.
+     *
+     * <p>Vanilla loads a saved binding over the default, so changing the default alone would leave every
+     * existing installation still bound to {@code ]}. Only that exact old default is cleared: a key the
+     * user chose themselves is left untouched.</p>
+     */
+    private void clearOldConfigDefault() {
+        if (this.openConfigKey == null) {
+            return;
+        }
+
+        // saveString() is the public way to read the bound key's name on every supported version.
+        if ("key.keyboard.right.bracket".equals(this.openConfigKey.saveString())) {
+            this.openConfigKey.setKey(InputConstants.UNKNOWN);
+            KeyMapping.resetMapping();
         }
     }
 

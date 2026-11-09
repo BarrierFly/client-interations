@@ -3,8 +3,8 @@
 **English** | [中文](#中文说明)
 
 > **Reading guide**
-> This English section is 1 528 words (7 830 characters without spaces) and takes about 6 minutes.
-> The Chinese section is 4 081 characters and takes about 8 minutes. The full [`LICENSE`](LICENSE) is
+> This English section is 1 583 words (8 093 characters without spaces) and takes about 6 minutes.
+> The Chinese section is 4 123 characters and takes about 8 minutes. The full [`LICENSE`](LICENSE) is
 > 1 212 characters (197 words).
 
 A client-side Fabric mod with eight independent automation features for Minecraft's two mouse buttons,
@@ -86,7 +86,8 @@ Timers keep running in every feature.
 
 ## Config screen
 
-Open it with the config key (default `]`) or from Mod Menu. There is one page per button, and the
+Open it from Mod Menu. No key is bound by default; bind the "Open Client Interactions config" action in
+Minecraft's controls screen if you want a hotkey. There is one page per button, and the
 page switch is the top right button, so the five features on screen are exactly the ones that exclude
 each other.
 
@@ -103,6 +104,10 @@ which modifiers are held at that instant, and what a modifier pressed alone mean
 
 Matching is exact: `R` does not fire while Shift is held, and `Shift+R` does not fire without it, so one
 press can never trigger two features. `Esc` or the `Clear` button leaves the feature unbound.
+
+Modifiers are taken from the order you press them: each one you hold is collected, and the first
+ordinary key ends the combination. That is why releasing a modifier early cannot shorten it, and why
+any number of them works.
 
 A rebind takes effect immediately, without restarting the game.
 
@@ -199,7 +204,7 @@ if something is missing.
 **[English](#client-interactions)** | **中文**
 
 > **阅读指引**
-> 中文部分 4 081 字（不计空白），大约需要 8 分钟；英文部分 1 528 词（不计空格 7 830 字符），
+> 中文部分 4 123 字（不计空白），大约需要 8 分钟；英文部分 1 583 词（不计空格 8 093 字符），
 > 大约需要 6 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
 
 一个客户端 Fabric 模组，为 Minecraft 的两个鼠标键——**攻击**（左键）与**使用**（右键）——提供
@@ -274,7 +279,8 @@ if something is missing.
 
 ## 配置界面
 
-用配置键（默认 `]`）或从 Mod Menu 打开。每个按键一页，翻页按钮在右上角，所以
+从 Mod Menu 打开。默认不绑定任何按键；想要快捷键的话，在 Minecraft 的按键设置里给
+「打开客户端交互配置」绑定一个键即可。每个按键一页，翻页按钮在右上角，所以
 屏幕上的五个功能正好就是互斥的那五个。
 
 每一行是一个功能：点名字切换开关，点它旁边的按键按钮重新绑定，带标签的输入框填写

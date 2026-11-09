@@ -22,8 +22,16 @@ import peoplecanfly.clientinteractions.common.FeatureSettings;
  * one button exclude each other, and that the screens render.</p>
  */
 public final class ClientGameTest implements FabricClientGameTest {
-    /** GLFW modifier bits: shift, ctrl, alt. */
-    private static final int MODIFIER_MASK = 1 | 2 | 4;
+    /** GLFW modifier bits, as delivered by the key callback. */
+    private static final int MODIFIER_MASK_SHIFT = 0x0001;
+    private static final int MODIFIER_MASK_CONTROL = 0x0002;
+    private static final int MODIFIER_MASK_ALT = 0x0004;
+
+    /** GLFW key codes used by the tests. */
+    private static final int KEY_K = org.lwjgl.glfw.GLFW.GLFW_KEY_K;
+    private static final int MODIFIER_KEY_CONTROL = org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_CONTROL;
+    private static final int MODIFIER_KEY_SHIFT = org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_SHIFT;
+    private static final int MODIFIER_KEY_ALT = org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_ALT;
 
 
     private static final Logger LOGGER = LoggerFactory.getLogger("ClientInteractions-GameTest");
@@ -58,6 +66,8 @@ public final class ClientGameTest implements FabricClientGameTest {
             testKeyComboActuallyFires(context);
             testValueFieldAcceptsTypedNumbers(context);
             testFullCombinationIsCaptured(context);
+            testCombinationFiresWithRealKeys(context);
+            testNoDefaultHotkeys(context);
 
             LOGGER.info("All in-game checks passed");
         }
@@ -639,23 +649,25 @@ public final class ClientGameTest implements FabricClientGameTest {
     /**
      * Checks that a three-modifier combination is captured whole, not cut short at the second key.
      *
-     * <p>The old screen polled the keyboard when the press was handled. Vanilla queues key events to the
-     * main thread, so by then the user had often released the modifiers, and the binding silently became a
-     * plain key. This drives the same event the vanilla handler builds, with all modifiers set in the
-     * event, and asserts all of them survive into the stored combination.</p>
+     * <p>This drives the presses in the order a user makes them: each modifier on its own, then the main
+     * key. The screen collects modifiers from press order rather than from a bit mask, precisely because
+     * the mask is not dependable: vanilla queues the events, and some harnesses inject a zero mask. Press
+     * order has no such dependency, so this test asserts the behaviour a real user gets.</p>
      */
     private void testFullCombinationIsCaptured(ClientGameTestContext context) {
         context.setScreen(() -> new KeyBindScreen(null, mod(), Feature.ATTACK_HOLD));
         context.waitTicks(3);
 
-        // Ctrl + Shift + Alt + K. Built through the event's own modifier accessors so the mask matches
-        // whatever this version uses, rather than hard-coding a bit pattern that differs per release.
-        compute(context, () -> {
-            KeyBindScreen screen = (KeyBindScreen) client().screen;
-            screen.keyPressed(new net.minecraft.client.input.KeyEvent(
-                    org.lwjgl.glfw.GLFW.GLFW_KEY_K, 0, MODIFIER_MASK));
-            return null;
-        });
+        // Ctrl, then Shift, then Alt, then K - exactly the order of a physical press.
+        pressOnBindScreen(context, MODIFIER_KEY_CONTROL, MODIFIER_MASK_CONTROL);
+        pressOnBindScreen(context, MODIFIER_KEY_SHIFT, MODIFIER_MASK_SHIFT);
+        pressOnBindScreen(context, MODIFIER_KEY_ALT, MODIFIER_MASK_ALT);
+
+        // The screen must still be open: a modifier alone is not a binding.
+        require(compute(context, () -> client().screen instanceof KeyBindScreen),
+                "combo: a modifier alone does not close the screen");
+
+        pressOnBindScreen(context, KEY_K, 0);
         context.waitTicks(2);
 
         require(compute(context, () -> {
@@ -677,6 +689,74 @@ public final class ClientGameTest implements FabricClientGameTest {
         });
         context.setScreen(() -> null);
         context.waitTicks(2);
+    }
+
+    /** Sends one key press to the open binding screen. */
+    private void pressOnBindScreen(ClientGameTestContext context, int key, int modifiers) {
+        compute(context, () -> {
+            if (client().screen instanceof KeyBindScreen screen) {
+                screen.keyPressed(new net.minecraft.client.input.KeyEvent(key, 0, modifiers));
+            }
+            return null;
+        });
+        context.waitTicks(1);
+    }
+
+    /**
+     * A bound combination must actually toggle its feature on a real press, and a plain key must not.
+     *
+     * <p>This is the check for the second half of the report: the binding was stored but nothing happened
+     * when pressed. It binds Shift+K and drives the real key state, asserting that K alone leaves the
+     * feature off and Shift+K turns it on.</p>
+     */
+    private void testCombinationFiresWithRealKeys(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.of("key.keyboard.k", true, false, false, false));
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(2);
+
+        // Plain K: the binding carries Shift, so it must stay off.
+        context.getInput().pressKey(KEY_K);
+        context.waitTicks(3);
+        require(compute(context, () -> !mod().engine().isActive(Feature.ATTACK_HOLD)),
+                "combo: a plain key does not fire a Shift binding");
+
+        // Shift+K: must fire.
+        context.getInput().holdShift();
+        context.waitTicks(2);
+        context.getInput().pressKey(KEY_K);
+        context.waitTicks(3);
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_HOLD)),
+                "combo: the bound combination fires when pressed");
+        context.getInput().releaseShift();
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(2);
+    }
+
+    /** The config screen must not ship with a global hotkey of its own. */
+    private void testNoDefaultHotkeys(ClientGameTestContext context) {
+        // The old ] default is cleared on the first client tick, so let a few pass first.
+        context.waitTicks(5);
+        require(compute(context, () -> mod().keyFor(Feature.ATTACK_HOLD).isUnbound()),
+                "defaults: no feature ships with a bound key");
+
+        require(compute(context, () -> {
+            net.minecraft.client.KeyMapping open = mod().openConfigKey();
+            return open == null || open.isUnbound();
+        }), "defaults: opening the config has no default key either");
     }
 
     /**
