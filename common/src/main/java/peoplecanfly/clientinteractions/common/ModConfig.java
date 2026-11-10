@@ -17,6 +17,9 @@ public final class ModConfig {
     private boolean hudEnabled = true;
     private boolean showMessages = true;
 
+    /** The combination that opens the config screen. */
+    private KeyCombo configKey = KeyCombo.unbound();
+
     public ModConfig() {
         for (Feature feature : Feature.values()) {
             this.settings.put(feature, FeatureSettings.defaults());
@@ -64,5 +67,14 @@ public final class ModConfig {
 
     public void setShowMessages(boolean showMessages) {
         this.showMessages = showMessages;
+    }
+
+    /** The combination that opens the config screen; unbound until the user sets one. */
+    public KeyCombo configKey() {
+        return this.configKey;
+    }
+
+    public void setConfigKey(KeyCombo value) {
+        this.configKey = value == null ? KeyCombo.unbound() : value;
     }
 }

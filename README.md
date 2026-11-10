@@ -3,8 +3,8 @@
 **English** | [中文](#中文说明)
 
 > **Reading guide**
-> This English section is 1 681 words (8 590 characters without spaces) and takes about 6 minutes.
-> The Chinese section is 4 454 characters and takes about 8 minutes. The full [`LICENSE`](LICENSE) is
+> This English section is 1 679 words (8 557 characters without spaces) and takes about 6 minutes.
+> The Chinese section is 4 431 characters and takes about 8 minutes. The full [`LICENSE`](LICENSE) is
 > 1 212 characters (197 words).
 
 A client-side Fabric mod with eight independent automation features for Minecraft's two mouse buttons,
@@ -87,8 +87,8 @@ Timers keep running in every feature.
 
 ## Config screen
 
-Open it from Mod Menu. No key is bound by default; bind the "Open Client Interactions config" action in
-Minecraft's controls screen if you want a hotkey. There is one page per button, and the
+Open it from Mod Menu, or bind a key for it with the **Key** button on the config screen (no key is bound
+by default). There is one page per button, and the
 page switch is the top right button, so the five features on screen are exactly the ones that exclude
 each other.
 
@@ -217,7 +217,7 @@ if something is missing.
 **[English](#client-interactions)** | **中文**
 
 > **阅读指引**
-> 中文部分 4 454 字（不计空白），大约需要 8 分钟；英文部分 1 681 词（不计空格 8 590 字符），
+> 中文部分 4 431 字（不计空白），大约需要 8 分钟；英文部分 1 679 词（不计空格 8 557 字符），
 > 大约需要 6 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
 
 一个客户端 Fabric 模组，为 Minecraft 的两个鼠标键——**攻击**（左键）与**使用**（右键）——提供
@@ -292,8 +292,8 @@ if something is missing.
 
 ## 配置界面
 
-从 Mod Menu 打开。默认不绑定任何按键；想要快捷键的话，在 Minecraft 的按键设置里给
-「打开客户端交互配置」绑定一个键即可。每个按键一页，翻页按钮在右上角，所以
+从 Mod Menu 打开，或用配置界面上的 **Key** 按钮给它绑一个键（默认不绑定）。每个按键一页，
+翻页按钮在右上角，所以
 屏幕上的五个功能正好就是互斥的那五个。
 
 每一行是一个功能：点名字切换开关，点它旁边的按键按钮重新绑定，带标签的输入框填写

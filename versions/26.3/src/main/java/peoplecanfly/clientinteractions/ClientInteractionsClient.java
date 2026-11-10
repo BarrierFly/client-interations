@@ -3,6 +3,7 @@ package peoplecanfly.clientinteractions;
 import com.mojang.blaze3d.platform.InputConstants;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -127,6 +128,28 @@ public final class ClientInteractionsClient implements ClientModInitializer {
         }
     }
 
+    /**
+     * Pushes the config-opening combination into its vanilla key mapping.
+     *
+     * <p>Same rule as a feature: vanilla gets the primary key only, and the table is rebuilt so the change
+     * works without a restart.</p>
+     */
+    public void applyConfigKeyBinding() {
+        if (this.openConfigKey == null) {
+            return;
+        }
+
+        KeyCombo combo = this.config.configKey();
+
+        if (!combo.isBound()) {
+            this.openConfigKey.setKey(InputConstants.UNKNOWN);
+        } else {
+            this.openConfigKey.setKey(InputConstants.getKey(combo.primaryKey()));
+        }
+
+        KeyMapping.resetMapping();
+    }
+
     /** Pushes the current settings into the engine, which keeps running while they change. */
     public void syncEngine() {
         this.engine.setEnabled(this.config.isEnabled());
@@ -204,13 +227,12 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             return;
         }
 
-        Set<String> heldKeys = HeldKeys.collect(client);
-
         // A combination can be completed by any of its keys, but vanilla only reports the press of the one
         // key a mapping owns. Watching the held set catches the moment a combination becomes complete,
         // whatever order the keys went down in, and is also where a longer binding takes priority over a
-        // shorter one that it contains.
-        this.handleHotkeys(client, heldKeys);
+        // shorter one that it contains. Only the keys used by some binding are polled, because a key bound
+        // to nothing is not tracked by any mapping and would otherwise never appear.
+        this.handleHotkeys(client);
 
         this.pollPlayerClicks(client, ActionChannel.ATTACK, client.options.keyAttack);
         this.pollPlayerClicks(client, ActionChannel.USE, client.options.keyUse);
@@ -232,9 +254,9 @@ public final class ClientInteractionsClient implements ClientModInitializer {
      * So only the longest matching combination is triggered, and shorter bindings contained in it are
      * skipped for that press.</p>
      */
-    private void handleHotkeys(Minecraft client, Set<String> heldKeys) {
+    private void handleHotkeys(Minecraft client) {
         // Drain click counts so vanilla's keyboard repeats never accumulate, but do not use them to
-        // decide anything: the held set is what the decision is based on.
+        // decide anything: the held-key set is what the decision is based on.
         for (Feature feature : Feature.values()) {
             KeyMapping key = this.featureKeys.get(feature);
 
@@ -245,10 +267,37 @@ public final class ClientInteractionsClient implements ClientModInitializer {
         }
 
         while (this.openConfigKey.consumeClick()) {
-            client.gui.setScreen(new ConfigScreen(client.gui.screen(), this));
+            // Only when the combination actually matches; the mapping owns one key, and a config key that is
+            // part of a longer combination must not open the screen on its own.
+            KeyCombo configCombo = this.config.configKey();
+
+            if (configCombo.matches(
+                    HeldKeys.heldAmong(new LinkedHashSet<>(configCombo.keys()), client))) {
+                client.gui.setScreen(new ConfigScreen(client.gui.screen(), this));
+            }
         }
 
-        this.updateFiredFeatures(heldKeys);
+        this.updateFiredFeatures(this.collectCandidateKeys(client), client);
+    }
+
+    /**
+     * Every key that appears in some binding, plus the config key.
+     *
+     * <p>Only these need checking each tick. A key bound to nothing is not tracked by any vanilla mapping,
+     * which is precisely why the held state is polled from the keyboard rather than read from the mappings.</p>
+     */
+    private Set<String> collectCandidateKeys(Minecraft client) {
+        Set<String> candidates = new LinkedHashSet<>();
+
+        for (Feature feature : Feature.values()) {
+            candidates.addAll(this.config.key(feature).keys());
+        }
+
+        if (this.openConfigKey != null && !this.openConfigKey.isUnbound()) {
+            candidates.add(this.openConfigKey.saveString());
+        }
+
+        return candidates;
     }
 
     /**
@@ -262,13 +311,15 @@ public final class ClientInteractionsClient implements ClientModInitializer {
      * <p>A longer combination wins over any shorter one it contains, so binding {@code A+C} blocks a plain
      * {@code C} binding while both keys are down.</p>
      */
-    private void updateFiredFeatures(Set<String> heldKeys) {
-        // With a screen open vanilla clears every key flag, so the held set would look empty and every
-        // combination would count as released. That made a hold re-fire - and therefore switch off - the
-        // moment the screen closed. Key state is not meaningful while a UI is up, so leave it alone.
-        if (Minecraft.getInstance().gui.screen() != null) {
+    private void updateFiredFeatures(Set<String> candidates, Minecraft client) {
+        // With a screen open vanilla releases every key, and the player's keys are going to the GUI, so the
+        // held state is meaningless. Leaving it alone also stops a hold from re-firing - and therefore
+        // switching itself off - the moment the screen closes.
+        if (client.gui.screen() != null || client.gui.overlay() != null) {
             return;
         }
+
+        Set<String> heldKeys = HeldKeys.heldAmong(candidates, client);
 
         // Collect the combinations that are currently satisfied, longest first.
         List<Feature> satisfied = new ArrayList<>();

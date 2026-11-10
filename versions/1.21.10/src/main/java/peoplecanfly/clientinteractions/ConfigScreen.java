@@ -94,8 +94,11 @@ public final class ConfigScreen extends Screen {
                         }));
         y += ROW;
 
+        // Three items share this row: Messages, the page switch, and the config-opening key.
+        int third = content / 3 - 2;
+
         this.addRenderableWidget(CycleButton.onOffBuilder(this.mod.config().showMessages())
-                .create(left, y, content / 2 - 2, 20, Component.literal("Messages"),
+                .create(left, y, third, 20, Component.literal("Messages"),
                         (b, v) -> {
                             this.mod.config().setShowMessages(v);
                             this.mod.saveConfig();
@@ -104,7 +107,14 @@ public final class ConfigScreen extends Screen {
         this.addRenderableWidget(Button.builder(
                         Component.literal(this.page == ActionChannel.ATTACK ? "Attack >" : "< Use"),
                         b -> this.switchPage())
-                .bounds(left + content / 2 + 2, y, content / 2 - 2, 20)
+                .bounds(left + third + 3, y, third, 20)
+                .build());
+
+        // The key that opens this screen, editable here so it is not hidden in the vanilla controls list.
+        this.addRenderableWidget(Button.builder(
+                        Component.literal("Key: " + this.configKeyDisplay()),
+                        b -> this.openConfigKeyBind())
+                .bounds(left + (third + 3) * 2, y, third, 20)
                 .build());
 
         y = this.rowsTop();
@@ -130,6 +140,7 @@ public final class ConfigScreen extends Screen {
 
     /** The y of the first feature row, pushed up if the header would leave too little room. */
     private int rowsTop() {
+        // Two header rows: the global switches, then messages/page/config key together.
         int natural = this.headerTop() + ROW * 2 + 4;
         int lowestAllowed = this.doneTop() - 4 - 5 * 18;
 
@@ -276,6 +287,19 @@ public final class ConfigScreen extends Screen {
     void switchPage() {
         this.page = this.page == ActionChannel.ATTACK ? ActionChannel.USE : ActionChannel.ATTACK;
         this.rebuildWidgets();
+    }
+
+    /** How the config-opening key reads. */
+    String configKeyDisplay() {
+        KeyCombo combo = this.mod.config().configKey();
+
+        return combo.isBound() ? combo.display(peoplecanfly.clientinteractions.common.KeyNames::readable)
+                : "Unbound";
+    }
+
+    /** Opens the capture screen for the config key. */
+    private void openConfigKeyBind() {
+        this.openKeyBind(new KeyBindScreen(this, this.mod, null));
     }
 
     /** Opens a screen through this version's entry point. */

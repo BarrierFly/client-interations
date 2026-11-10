@@ -51,13 +51,13 @@ public final class KeyBindScreen extends Screen {
     private final List<String> captured = new ArrayList<>();
 
     public KeyBindScreen(Screen parent, ClientInteractionsClient mod, Feature feature) {
-        super(Component.literal("Rebind " + feature.label()));
+        super(Component.literal(feature == null ? "Rebind config key" : "Rebind " + feature.label()));
         this.parent = parent;
         this.mod = mod;
         this.feature = feature;
 
         // Start from whatever is bound now, so a combination can be extended rather than retyped.
-        this.captured.addAll(this.mod.config().key(feature).keys());
+        this.captured.addAll(this.current().keys());
     }
 
     @Override
@@ -128,8 +128,15 @@ public final class KeyBindScreen extends Screen {
         return KeyCombo.of(this.captured).display(KeyNames::readable);
     }
 
+    /** The binding being edited: a feature's, or the config key's when the feature is {@code null}. */
+    private KeyCombo current() {
+        return this.feature == null
+                ? this.mod.config().configKey()
+                : this.mod.config().key(this.feature);
+    }
+
     private String boundDisplay() {
-        KeyCombo combo = this.mod.config().key(this.feature);
+        KeyCombo combo = this.current();
 
         return combo.isBound() ? combo.display(KeyNames::readable) : "Unbound";
     }
@@ -202,8 +209,16 @@ public final class KeyBindScreen extends Screen {
 
     /** Stores the captured combination and returns to the list. */
     private void apply() {
-        this.mod.config().setKey(this.feature, KeyCombo.of(this.captured));
-        this.mod.applyKeyBinding(this.feature);
+        KeyCombo combo = KeyCombo.of(this.captured);
+
+        if (this.feature == null) {
+            this.mod.config().setConfigKey(combo);
+            this.mod.applyConfigKeyBinding();
+        } else {
+            this.mod.config().setKey(this.feature, combo);
+            this.mod.applyKeyBinding(this.feature);
+        }
+
         this.mod.saveConfig();
         this.minecraft.gui.setScreen(this.parent);
     }

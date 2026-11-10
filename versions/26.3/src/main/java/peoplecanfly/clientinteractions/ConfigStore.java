@@ -54,6 +54,22 @@ public final class ConfigStore {
             config.setHudEnabled(getBoolean(root, "hud", config.isHudEnabled()));
             config.setShowMessages(getBoolean(root, "messages", config.showMessages()));
 
+            // The config-opening key lives at the root, not inside a feature block.
+            if (root.has("configKey") && root.get("configKey").isJsonObject()) {
+                JsonObject node = root.getAsJsonObject("configKey");
+                java.util.List<String> keys = new java.util.ArrayList<>();
+
+                if (node.has("keys") && node.get("keys").isJsonArray()) {
+                    for (com.google.gson.JsonElement element : node.getAsJsonArray("keys")) {
+                        if (element.isJsonPrimitive()) {
+                            keys.add(element.getAsString());
+                        }
+                    }
+                }
+
+                config.setConfigKey(KeyCombo.of(keys));
+            }
+
             for (Feature feature : Feature.values()) {
                 if (!root.has(feature.id()) || !root.get(feature.id()).isJsonObject()) {
                     continue;
@@ -114,6 +130,18 @@ public final class ConfigStore {
         root.addProperty("enabled", config.isEnabled());
         root.addProperty("hud", config.isHudEnabled());
         root.addProperty("messages", config.showMessages());
+
+        if (config.configKey().isBound()) {
+            JsonObject configKeyNode = new JsonObject();
+            com.google.gson.JsonArray configKeys = new com.google.gson.JsonArray();
+
+            for (String key : config.configKey().keys()) {
+                configKeys.add(key);
+            }
+
+            configKeyNode.add("keys", configKeys);
+            root.add("configKey", configKeyNode);
+        }
 
         for (Feature feature : Feature.values()) {
             FeatureSettings settings = config.settings(feature);
