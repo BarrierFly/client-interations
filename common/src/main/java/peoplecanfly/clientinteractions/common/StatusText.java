@@ -40,6 +40,22 @@ public final class StatusText {
         return feature.label() + (on ? " on" : " off");
     }
 
+    /**
+     * Shown when a hotkey is pressed while the master switch is off.
+     *
+     * <p>Without this the feature appeared to switch on - the message, the HUD and the config row all said
+     * so - while nothing happened at all, because the master switch suppresses every action. That is a
+     * contradiction the player cannot resolve from the screen, so the press is refused and explained.</p>
+     */
+    public static String masterOffMessage() {
+        return "Automation is off - turn it on in the config first";
+    }
+
+    /** The HUD line used instead of the feature list while the master switch is off. */
+    public static String pausedLine() {
+        return "Automation: off";
+    }
+
     /** The page title for one button, e.g. {@code Attack}. */
     public static String channelTitle(ActionChannel channel) {
         return channel == ActionChannel.ATTACK ? "Attack" : "Use";

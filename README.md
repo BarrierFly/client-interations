@@ -3,8 +3,8 @@
 **English** | [中文](#中文说明)
 
 > **Reading guide**
-> This English section is 1 679 words (8 557 characters without spaces) and takes about 6 minutes.
-> The Chinese section is 4 431 characters and takes about 8 minutes. The full [`LICENSE`](LICENSE) is
+> This English section is 1 853 words (9 367 characters without spaces) and takes about 7 minutes.
+> The Chinese section is 4 669 characters and takes about 9 minutes. The full [`LICENSE`](LICENSE) is
 > 1 212 characters (197 words).
 
 A client-side Fabric mod with eight independent automation features for Minecraft's two mouse buttons,
@@ -119,7 +119,22 @@ If one feature owns `A+C` and another owns plain `C`, pressing both keys runs **
 feature. The longer combination takes precedence, and the shorter one works again once the longer is
 released. This is what keeps a single key usable both alone and as part of a combination.
 
+### A bound key stops doing its ordinary job
+
+While a combination is held down, its keys no longer perform their normal game action. Binding `Shift+1`
+runs the feature and does **not** switch to hotbar slot 1; the same holds for `Q`, `E`, `F` and the rest.
+Pressing `1` on its own still selects the slot, because only a complete combination is claimed.
+
+Only the queued press is taken, never the held state, so a combination containing movement keys or Shift
+still walks and crouches normally. The attack and use buttons are never taken either, so a binding such as
+`Shift+Left Click` does not stop you from fighting.
+
 A rebind takes effect immediately, without restarting the game.
+
+### Master switch
+
+The master switch suppresses every action. Pressing a hotkey while it is off is therefore refused and says
+so, instead of switching the feature on and doing nothing.
 
 ### Numbers
 
@@ -174,17 +189,18 @@ classpath regardless of the declaration.
   holds, clicks, one-tick-per-tick timing, mutual exclusion, the master switch, screen behaviour,
   combination matching, that a multi-key combination is captured whole, that it fires on a real press
   without toggling itself back off, that a longer combination blocks a shorter one it contains, that a
-  hold resumes after a screen closes, that a rebind fires without a restart, that a mouse button binds
-  too, that a typed number reaches the engine and is clamped, that fast click injects the extra clicks
-  for a real press, and that both screens draw visible text with no widget overlapping another or
-  leaving the screen at a small gui.
+  bound key no longer performs its ordinary game action while the key alone still does, that a hotkey is
+  refused while the master switch is off, that a hold resumes after a screen closes, that a rebind fires
+  without a restart, that a mouse button binds too, that a typed number reaches the engine and is
+  clamped, that fast click injects the extra clicks for a real press, and that both screens draw visible
+  text with no widget overlapping another or leaving the screen at a small gui.
 * 1.19.4, 1.20.1 and 1.21.1 have no client gametest API; they are verified by compiling, packaging and
   starting the game.
 
 ## Troubleshooting
 
-* **A feature does nothing** - its key is unbound, the **Automation** master switch is off, or another
-  feature of the same button is running (they exclude each other).
+* **A feature does nothing** - its key is unbound, the **Automation** master switch is off (a hotkey is
+  refused and says so), or another feature of the same button is running (they exclude each other).
 * **Stops when I open my inventory** - expected for attack; see above.
 * **Slower than configured** - vanilla is dropping the extra actions; see Vanilla limits.
 * **Wrong version error** - the jar does not match your game version.
@@ -217,7 +233,7 @@ if something is missing.
 **[English](#client-interactions)** | **中文**
 
 > **阅读指引**
-> 中文部分 4 431 字（不计空白），大约需要 8 分钟；英文部分 1 679 词（不计空格 8 557 字符），
+> 中文部分 4 669 字（不计空白），大约需要 9 分钟；英文部分 1 853 词（不计空格 9 367 字符），
 > 大约需要 6 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
 
 一个客户端 Fabric 模组，为 Minecraft 的两个鼠标键——**攻击**（左键）与**使用**（右键）——提供
@@ -322,6 +338,20 @@ if something is missing.
 `A+C` 的功能。长组合优先，松开后短组合又能正常工作。这样同一个键既能单独用，也能作为
 组合的一部分。
 
+### 绑定的键不再执行原版动作
+
+组合键按住期间，它的键不再执行原本的游戏动作。绑定 `Shift+1` 会执行功能，**不会**切换到第 1 格
+快捷栏；`Q`、`E`、`F` 等键同理。单独按 `1` 仍然会切换快捷栏，因为只有完整组合才会被接管。
+
+只拦截“按下”这一事件，不拦截按住状态，所以包含移动键或 Shift 的组合仍然能正常行走和潜行。
+攻击键与使用键也不会被拦截，因此像 `Shift+左键` 这样的绑定不会影响你打怪。
+
+改键无需重启即刻生效。
+
+### 总开关
+
+总开关会压制所有动作。因此在它关闭时按快捷键会被拒绝并说明原因，而不是把功能打开却什么都不做。
+
 ### 数值
 
 每个数值都是输入框：点进去直接输入，不必在预设档位之间循环。只接受数字，超出范围
@@ -370,17 +400,16 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
   跨刻分布，以及 7000 刻的漂移检查。
 * 1.21.10、1.21.11、26.3 有游戏内测试：启动真实客户端、创建世界，断言长按、点击、每刻一步的
   计时、互斥、总开关、界面行为、组合键匹配、多键组合被完整捕获、按下后不会自我抵消、
-  长组合会屏蔽包含的短绑定、界面关闭后长按会恢复、改键无需重启即生效、鼠标键可绑定、
-  输入的数值会进入引擎并被钳制、快速连点确实为一次真实按下注入了额外点击，以及在较小
-  GUI 下两个界面都能画出可见文字、且没有按钮互相重叠或跑出屏幕。
-  数值会进入引擎并被钳制、快速连点确实为一次真实按下注入了额外点击、三修饰键组合被
-  完整捕获，以及在较小 GUI 下两个界面都能画出可见文字、且没有按钮互相重叠或跑出屏幕。
+  长组合会屏蔽包含的短绑定、绑定的组合键不再触发原版动作而单键仍可单独使用、总开关关闭时
+  快捷键会被拒绝、界面关闭后长按会恢复、改键无需重启即生效、鼠标键可绑定、输入的数值会
+  进入引擎并被钳制、快速连点确实为一次真实按下注入了额外点击，以及在较小 GUI 下两个界面
+  都能画出可见文字、且没有按钮互相重叠或跑出屏幕。
 * 1.19.4、1.20.1、1.21.1 没有客户端 gametest API，通过编译、打包和启动游戏验证。
 
 ## 疑难排查
 
-* **某个功能没反应** — 快捷键未绑定，或 **自动化** 总开关关闭，或同一按键上已有其它功能在运行
-  （它们互斥）。
+* **某个功能没反应** — 快捷键未绑定，或 **自动化** 总开关关闭（此时按快捷键会被拒绝并说明），
+  或同一按键上已有其它功能在运行（它们互斥）。
 * **打开背包后停了** — 攻击功能的预期行为，见上文。
 * **比设定值慢** — 原版丢弃了多余动作，见「原版限制」。
 * **版本不匹配** — jar 与游戏版本不对应。

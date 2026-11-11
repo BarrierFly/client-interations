@@ -168,17 +168,31 @@ public final class ClientInteractionsClient implements ClientModInitializer {
 
     /** Toggles one feature and reports it; used by the key bindings and the config screen. */
     public boolean toggleFeature(Feature feature) {
-        boolean on = this.engine.toggle(feature);
-
-        if (this.config.showMessages()) {
-            Minecraft client = Minecraft.getInstance();
-
-            if (client.player != null) {
-                client.player.sendOverlayMessage(Component.literal(StatusText.toggleMessage(feature, on)));
-            }
+        // Turning a feature off always works. Turning one on while the master switch is off is refused:
+        // the engine would show it as on - message, HUD and config row - while suppressing every action,
+        // which is exactly "it says on but nothing happens". Explaining is better than pretending.
+        if (!this.engine.isActive(feature) && !this.engine.isEnabled()) {
+            this.actionBar(StatusText.masterOffMessage());
+            return false;
         }
 
+        boolean on = this.engine.toggle(feature);
+        this.actionBar(StatusText.toggleMessage(feature, on));
+
         return on;
+    }
+
+    /** Shows a message in the action bar, if messages are enabled. */
+    private void actionBar(String text) {
+        if (!this.config.showMessages()) {
+            return;
+        }
+
+        Minecraft client = Minecraft.getInstance();
+
+        if (client.player != null) {
+            client.player.sendOverlayMessage(Component.literal(text));
+        }
     }
 
     @Override
@@ -211,10 +225,130 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             this.applyKeyBinding(feature);
         }
 
+        ClientTickEvents.START_CLIENT_TICK.register(client -> this.claimBoundKeys(client));
         ClientTickEvents.END_CLIENT_TICK.register(client -> this.onClientTick());
         HudOverlay.register();
 
         LOGGER.info("{} initialised; config at {}", StatusText.MOD_NAME, this.configStore.path());
+    }
+
+    /**
+     * Stops a pressed combination from also performing its ordinary game action.
+     *
+     * <h2>Why this is needed</h2>
+     * <p>Vanilla acts on a key the moment it goes down, before any mod sees it: {@code 1} selects hotbar
+     * slot 1, {@code Q} drops an item, {@code E} opens the inventory. A mod cannot cancel that from a tick
+     * handler, so binding {@code Shift+1} both ran the feature and switched the hotbar slot.</p>
+     *
+     * <h2>How</h2>
+     * <p>Only the queued <em>press</em> is drained, not the key's held state. That distinction matters:
+     * one-shot actions (hotbar slots, drop, inventory, chat, ...) all go through {@code consumeClick},
+     * while continuous states such as walking, sneaking and sprinting read {@code isDown} every tick.
+     * Draining the press therefore stops the unwanted action without ever making the player stand up when
+     * a combination contains Shift, or stop walking when one contains W.</p>
+     *
+     * <p>This runs at the start of a client tick, which is before vanilla's own key-binding pass for that
+     * tick. Keyboard events are polled between ticks rather than during one, so the drained state cannot be
+     * refilled before vanilla reads it.</p>
+     *
+     * <p>Only keys of a <em>complete</em> combination are claimed. Pressing {@code 1} alone when only
+     * {@code Shift+1} is bound must still select the hotbar slot, so nothing is taken from the player.</p>
+     */
+    private void claimBoundKeys(Minecraft client) {
+        if (client.options == null || client.player == null) {
+            return;
+        }
+
+        // While a screen is open the keys belong to the GUI.
+        if (client.gui.screen() != null || client.gui.overlay() != null) {
+            return;
+        }
+
+        Set<String> claimed = this.claimedKeys(client);
+
+        if (claimed.isEmpty()) {
+            return;
+        }
+
+        for (KeyMapping mapping : client.options.keyMappings) {
+            // Only ordinary bindings are taken. Three kinds are left alone:
+            //  * the mod's own mappings, whose presses are the hotkeys handled below;
+            //  * the attack and use buttons, because those are the buttons this mod itself drives - taking
+            //    their presses would stop the player from fighting or mining at all when a combination
+            //    happens to contain a mouse button.
+            if (claimed.contains(mapping.saveString())
+                    && !this.ownsMapping(mapping)
+                    && !this.isChannelMapping(mapping, client)) {
+                while (mapping.consumeClick()) {
+                    // Drain the press vanilla queued for this key.
+                }
+            }
+        }
+    }
+
+    /** True for the vanilla attack or use button, which automation drives itself. */
+    private boolean isChannelMapping(KeyMapping mapping, Minecraft client) {
+        return mapping == client.options.keyAttack || mapping == client.options.keyUse;
+    }
+
+    /**
+     * The keys of every combination that is complete right now and not merely part of a longer one.
+     *
+     * <p>The shadowing rule is the same as for firing, so a combination that yields to a longer one does
+     * not take that longer combination's keys either.</p>
+     */
+    private Set<String> claimedKeys(Minecraft client) {
+        Set<String> claimed = new java.util.HashSet<>();
+
+        for (Feature feature : Feature.values()) {
+            KeyCombo combo = this.config.key(feature);
+
+            if (!combo.isBound() || !combo.matches(
+                    HeldKeys.heldAmong(new LinkedHashSet<>(combo.keys()), client))) {
+                continue;
+            }
+
+            boolean shadowed = false;
+
+            for (Feature other : Feature.values()) {
+                KeyCombo otherCombo = this.config.key(other);
+
+                if (other != feature && combo.isShadowedBy(otherCombo)
+                        && otherCombo.matches(
+                                HeldKeys.heldAmong(new LinkedHashSet<>(otherCombo.keys()), client))) {
+                    shadowed = true;
+                    break;
+                }
+            }
+
+            if (!shadowed) {
+                claimed.addAll(combo.keys());
+            }
+        }
+
+        KeyCombo configCombo = this.config.configKey();
+
+        if (configCombo.isBound() && configCombo.matches(
+                HeldKeys.heldAmong(new LinkedHashSet<>(configCombo.keys()), client))) {
+            claimed.addAll(configCombo.keys());
+        }
+
+        return claimed;
+    }
+
+    /** True for a mapping this mod created and drives. */
+    private boolean ownsMapping(KeyMapping mapping) {
+        if (mapping == this.openConfigKey) {
+            return true;
+        }
+
+        for (KeyMapping own : this.featureKeys.values()) {
+            if (own == mapping) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void onClientTick() {
@@ -405,7 +539,13 @@ public final class ClientInteractionsClient implements ClientModInitializer {
 
     /** HUD lines for whatever is currently running. */
     public List<String> hudLines() {
-        List<String> lines = new ArrayList<>(2);
+        List<String> lines = new ArrayList<>(3);
+
+        if (!this.engine.isEnabled()) {
+            // Without this line the HUD listed features as running while the master switch suppressed
+            // every action, so the display contradicted what the game was doing.
+            lines.add(StatusText.pausedLine());
+        }
 
         for (Feature feature : Feature.values()) {
             if (this.engine.isActive(feature)) {

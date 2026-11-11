@@ -70,6 +70,8 @@ public final class ClientGameTest implements FabricClientGameTest {
             testFullCombinationIsCaptured(context);
             testCombinationFiresWithRealKeys(context);
             testLongerCombinationBlocksShorter(context);
+            testBoundKeyDoesNotReachVanilla(context);
+            testMasterSwitchRefusesToggles(context);
             testHoldSurvivesScreen(context);
             testNoDefaultHotkeys(context);
 
@@ -878,7 +880,6 @@ public final class ClientGameTest implements FabricClientGameTest {
 
     /** The config screen must not ship with a global hotkey of its own. */
     private void testNoDefaultHotkeys(ClientGameTestContext context) {
-        // The old ] default is cleared on the first client tick, so let a few pass first.
         context.waitTicks(5);
         require(compute(context, () -> mod().keyFor(Feature.ATTACK_HOLD).isUnbound()),
                 "defaults: no feature ships with a bound key");
@@ -887,6 +888,104 @@ public final class ClientGameTest implements FabricClientGameTest {
             net.minecraft.client.KeyMapping open = mod().openConfigKey();
             return open == null || open.isUnbound();
         }), "defaults: opening the config has no default key either");
+    }
+
+    /**
+     * A bound key must not also perform its ordinary game action.
+     *
+     * <p>Vanilla acts on a key before any mod sees it, so binding {@code Shift+1} used to both run the
+     * feature and switch the hotbar slot. The mod now drains the queued press of the claimed keys, which is
+     * what this checks: pressing the combination fires the feature and leaves the slot alone, while pressing
+     * the key on its own still selects the slot.</p>
+     */
+    private void testBoundKeyDoesNotReachVanilla(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_PERIODIC_CLICK,
+                    combo("key.keyboard.left.shift", "key.keyboard.1"));
+            mod().applyKeyBinding(Feature.ATTACK_PERIODIC_CLICK);
+            client().player.getInventory().setSelectedSlot(4);
+            return null;
+        });
+        context.waitTicks(2);
+
+        context.getInput().holdKey(MODIFIER_KEY_SHIFT);
+        context.waitTicks(2);
+        context.getInput().holdKey(org.lwjgl.glfw.GLFW.GLFW_KEY_1);
+        context.waitTicks(4);
+
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_PERIODIC_CLICK)),
+                "claimed key: the combination still fires its feature");
+        require(compute(context, () -> client().player.getInventory().getSelectedSlot() == 4),
+                "claimed key: the hotbar slot is not switched by a bound combination");
+
+        context.getInput().releaseKey(org.lwjgl.glfw.GLFW.GLFW_KEY_1);
+        context.getInput().releaseKey(MODIFIER_KEY_SHIFT);
+        context.waitTicks(3);
+
+        // The same key on its own must keep working: only a complete combination is claimed.
+        compute(context, () -> {
+            client().player.getInventory().setSelectedSlot(4);
+            return null;
+        });
+        context.waitTicks(2);
+        context.getInput().holdKey(org.lwjgl.glfw.GLFW.GLFW_KEY_1);
+        context.waitTicks(4);
+        context.getInput().releaseKey(org.lwjgl.glfw.GLFW.GLFW_KEY_1);
+        context.waitTicks(2);
+
+        require(compute(context, () -> client().player.getInventory().getSelectedSlot() == 0),
+                "claimed key: pressing the key alone still selects the hotbar slot");
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_PERIODIC_CLICK,
+                    peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().applyKeyBinding(Feature.ATTACK_PERIODIC_CLICK);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(2);
+    }
+
+    /**
+     * With the master switch off a hotkey must refuse to switch a feature on.
+     *
+     * <p>Before this the feature reported on - message, HUD and config row - while the master switch
+     * suppressed every action, so the player saw "on" and nothing happened.</p>
+     */
+    private void testMasterSwitchRefusesToggles(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD, combo("key.keyboard.k"));
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().setGameEnabled(false);
+            return null;
+        });
+        context.waitTicks(2);
+
+        context.getInput().holdKey(KEY_K);
+        context.waitTicks(2);
+        context.getInput().releaseKey(KEY_K);
+        context.waitTicks(3);
+
+        require(compute(context, () -> !mod().engine().isActive(Feature.ATTACK_HOLD)),
+                "master off: a hotkey does not switch a feature on");
+        require(compute(context, () -> !client().options.keyAttack.isDown()),
+                "master off: nothing is pressed");
+        require(compute(context, () -> mod().hudLines().contains(
+                        peoplecanfly.clientinteractions.common.StatusText.pausedLine())),
+                "master off: the HUD says automation is off");
+
+        compute(context, () -> {
+            mod().setGameEnabled(true);
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(2);
     }
 
     /**
