@@ -70,6 +70,14 @@ public final class GameInput {
         if (hold != wasOwned) {
             this.owned[channel.ordinal()] = hold;
             this.setKeyDown(channel, hold);
+
+            // A real press is two things: the button goes down, and one click is queued. Only the second
+            // one produces the arm swing and starts the block being broken, so a hold that merely sets the
+            // flag does nothing visible whenever the crosshair is on air or a mob - the very common case.
+            // Emitting the press here makes a forced hold behave exactly like a real press-and-hold.
+            if (hold && clicks == 0) {
+                this.click(channel, 1);
+            }
         } else if (hold) {
             // The mod believes it is holding, but vanilla clears isDown whenever a screen opens
             // (KeyMapping.releaseAll) and on a mouse grab. Without re-asserting it here the hold would

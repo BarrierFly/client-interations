@@ -71,7 +71,16 @@ public final class GameInput {
     }
 
     private void applyAttack(int clicks, boolean hold) {
+        boolean wasOwned = this.owned[ActionChannel.ATTACK.ordinal()];
         this.setKeyOwned(ActionChannel.ATTACK, hold);
+
+        // A real press is two things: the button goes down, and one click is queued. Only the second one
+        // produces the arm swing and starts the block being broken, so a hold that merely sets the flag
+        // does nothing visible whenever the crosshair is on air or a mob - the very common case. Emitting
+        // the press here makes a forced hold behave exactly like a real press-and-hold.
+        if (hold && !wasOwned && clicks == 0) {
+            this.client.startAttack();
+        }
 
         if (hold && this.client.missTime >= SCREEN_MISS_TIME) {
             // A forced hold must not inherit the sentinel vanilla sets while a screen is open, otherwise
@@ -90,7 +99,13 @@ public final class GameInput {
     }
 
     private void applyUse(int clicks, boolean hold) {
+        boolean wasOwned = this.owned[ActionChannel.USE.ordinal()];
         this.setKeyOwned(ActionChannel.USE, hold);
+
+        // See applyAttack: a hold needs the queued press as well as the flag to do anything visible.
+        if (hold && !wasOwned && clicks == 0 && this.vanillaInputActive()) {
+            this.client.startUseItem();
+        }
 
         if (hold && !this.vanillaInputActive()) {
             LocalPlayer player = this.client.player;

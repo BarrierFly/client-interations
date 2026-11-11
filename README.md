@@ -3,8 +3,8 @@
 **English** | [中文](#中文说明)
 
 > **Reading guide**
-> This English section is 1 853 words (9 367 characters without spaces) and takes about 7 minutes.
-> The Chinese section is 4 669 characters and takes about 9 minutes. The full [`LICENSE`](LICENSE) is
+> This English section is 1 933 words (9 697 characters without spaces) and takes about 7 minutes.
+> The Chinese section is 4 801 characters and takes about 9 minutes. The full [`LICENSE`](LICENSE) is
 > 1 212 characters (197 words).
 
 A client-side Fabric mod with eight independent automation features for Minecraft's two mouse buttons,
@@ -62,6 +62,12 @@ time.
 
 All eight features start **off** and **unbound**. Their on/off state is not saved, so a restart never
 starts clicking. Bind a key per feature in the config screen.
+
+### A hold behaves like a real press-and-hold
+
+A real mouse press is two things: the button goes down, and one click is queued. The queued click is what
+produces the arm swing and starts a block breaking, so turning it on also emits that first press. Without
+it a hold would set the flag and do nothing visible whenever the crosshair was on air or on a mob.
 
 ## Vanilla limits
 
@@ -190,10 +196,11 @@ classpath regardless of the declaration.
   combination matching, that a multi-key combination is captured whole, that it fires on a real press
   without toggling itself back off, that a longer combination blocks a shorter one it contains, that a
   bound key no longer performs its ordinary game action while the key alone still does, that a hotkey is
-  refused while the master switch is off, that a hold resumes after a screen closes, that a rebind fires
-  without a restart, that a mouse button binds too, that a typed number reaches the engine and is
-  clamped, that fast click injects the extra clicks for a real press, and that both screens draw visible
-  text with no widget overlapping another or leaving the screen at a small gui.
+  refused while the master switch is off, that a forced hold swings the arm like a real press, that a hold
+  resumes after a screen closes, that a rebind fires without a restart, that a mouse button binds too, that
+  a typed number reaches the engine and is clamped, that fast click injects the extra clicks for a real
+  press, and that both screens draw visible text with no widget overlapping another or leaving the screen
+  at a small gui.
 * 1.19.4, 1.20.1 and 1.21.1 have no client gametest API; they are verified by compiling, packaging and
   starting the game.
 
@@ -233,7 +240,7 @@ if something is missing.
 **[English](#client-interactions)** | **中文**
 
 > **阅读指引**
-> 中文部分 4 669 字（不计空白），大约需要 9 分钟；英文部分 1 853 词（不计空格 9 367 字符），
+> 中文部分 4 801 字（不计空白），大约需要 9 分钟；英文部分 1 933 词（不计空格 9 697 字符），
 > 大约需要 6 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
 
 一个客户端 Fabric 模组，为 Minecraft 的两个鼠标键——**攻击**（左键）与**使用**（右键）——提供
@@ -286,6 +293,12 @@ if something is missing.
 
 八个功能默认**全部关闭**且**全部无快捷键**。功能的开关状态不会被保存，所以重启游戏不会自动开始
 点击。快捷键请在配置界面里逐个绑定。
+
+### 长按和真实按下保持一致
+
+真实的一次鼠标按下包含两件事：按键落下，以及排入一次点击。产生手臂挥动、开始挖掘方块的是那次
+点击，所以开启长按时也会补上这一次按下。否则长按只是把按键标记设为按下，当准星对着空气或生物时
+完全看不到任何反应。
 
 ## 原版限制
 
@@ -401,9 +414,9 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 * 1.21.10、1.21.11、26.3 有游戏内测试：启动真实客户端、创建世界，断言长按、点击、每刻一步的
   计时、互斥、总开关、界面行为、组合键匹配、多键组合被完整捕获、按下后不会自我抵消、
   长组合会屏蔽包含的短绑定、绑定的组合键不再触发原版动作而单键仍可单独使用、总开关关闭时
-  快捷键会被拒绝、界面关闭后长按会恢复、改键无需重启即生效、鼠标键可绑定、输入的数值会
-  进入引擎并被钳制、快速连点确实为一次真实按下注入了额外点击，以及在较小 GUI 下两个界面
-  都能画出可见文字、且没有按钮互相重叠或跑出屏幕。
+  快捷键会被拒绝、长按会像真实按下一样挥动手臂、界面关闭后长按会恢复、改键无需重启即生效、
+  鼠标键可绑定、输入的数值会进入引擎并被钳制、快速连点确实为一次真实按下注入了额外点击，
+  以及在较小 GUI 下两个界面都能画出可见文字、且没有按钮互相重叠或跑出屏幕。
 * 1.19.4、1.20.1、1.21.1 没有客户端 gametest API，通过编译、打包和启动游戏验证。
 
 ## 疑难排查

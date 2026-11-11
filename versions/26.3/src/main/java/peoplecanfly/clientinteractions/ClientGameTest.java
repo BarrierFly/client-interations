@@ -72,6 +72,7 @@ public final class ClientGameTest implements FabricClientGameTest {
             testLongerCombinationBlocksShorter(context);
             testBoundKeyDoesNotReachVanilla(context);
             testMasterSwitchRefusesToggles(context);
+            testHoldProducesASwing(context);
             testHoldSurvivesScreen(context);
             testNoDefaultHotkeys(context);
 
@@ -987,6 +988,53 @@ public final class ClientGameTest implements FabricClientGameTest {
             return null;
         });
         context.waitTicks(2);
+    }
+
+    /**
+     * A forced hold must produce the same visible reaction as a real press-and-hold.
+     *
+     * <p>A real press is two things at once: the button goes down, and a click is queued. Only the queued
+     * click produces the arm swing, so a hold that merely set the flag did nothing at all whenever the
+     * crosshair was on air or on a mob - which is most of the time. Vanilla's own swing flag is the witness,
+     * because it is what the player actually sees.</p>
+     */
+    private void testHoldProducesASwing(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD, combo("key.keyboard.k"));
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            // Aim at the sky so no block target exists: only the queued press can produce a swing.
+            client().player.setXRot(-85.0F);
+            return null;
+        });
+        context.waitTicks(3);
+
+        context.getInput().holdKey(KEY_K);
+        context.waitTicks(2);
+        context.getInput().releaseKey(KEY_K);
+
+        boolean sawSwing = false;
+
+        for (int i = 0; i < 6; i++) {
+            context.waitTick();
+
+            if (compute(context, () -> client().player.isSwinging())) {
+                sawSwing = true;
+            }
+        }
+
+        require(sawSwing, "hold: a forced hold swings the arm like a real press");
+
+        compute(context, () -> {
+            client().player.setXRot(0.0F);
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(3);
     }
 
     /**
