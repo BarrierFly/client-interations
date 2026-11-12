@@ -59,6 +59,15 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     /** Features whose combination was already satisfied last tick, so holding does not retrigger. */
     private final Set<Feature> firedFeatures = java.util.EnumSet.noneOf(Feature.class);
 
+    /**
+     * The physical key state sampled at the start of this tick, before any suppression.
+     *
+     * <p>Suppressing a bound combination clears the attack and use flags, and those are exactly the keys a
+     * combination may contain. Reading the live state later in the same tick would see them released and undo
+     * the feature that had just been switched on.</p>
+     */
+    private Set<String> sampledHeldKeys;
+
     public static ClientInteractionsClient get() {
         return instance;
     }
@@ -239,24 +248,37 @@ public final class ClientInteractionsClient implements ClientModInitializer {
      *
      * <h2>Why this is needed</h2>
      * <p>Vanilla acts on a key the moment it goes down, before any mod sees it: {@code 1} selects hotbar
-     * slot 1, {@code Q} drops an item, {@code E} opens the inventory. A mod cannot cancel that from a tick
-     * handler, so binding {@code Shift+1} both ran the feature and switched the hotbar slot.</p>
+     * slot 1, {@code Q} drops an item, {@code E} opens the inventory, and the left button attacks. A mod
+     * cannot cancel that from a tick handler, so binding {@code Shift+1} both ran the feature and switched
+     * the hotbar slot, and binding {@code Shift+Left Click} both ran the feature and punched.</p>
      *
      * <h2>How</h2>
-     * <p>Only the queued <em>press</em> is drained, not the key's held state. That distinction matters:
-     * one-shot actions (hotbar slots, drop, inventory, chat, ...) all go through {@code consumeClick},
-     * while continuous states such as walking, sneaking and sprinting read {@code isDown} every tick.
-     * Draining the press therefore stops the unwanted action without ever making the player stand up when
-     * a combination contains Shift, or stop walking when one contains W.</p>
+     * <p>Two things are suppressed, in different ways, because the two kinds of action work differently:</p>
+     *
+     * <ul>
+     *   <li><b>One-shot actions</b> (hotbar slots, drop, inventory, chat) run from the queued
+     *       <em>press</em>, so only {@code consumeClick} is drained.</li>
+     *   <li><b>Attack and use</b> keep acting for as long as their {@code isDown} flag is set -
+     *       {@code continueAttack} reads it every tick - so their flag is cleared too. Otherwise a
+     *       combination containing the left button would keep fighting for as long as it was held.</li>
+     * </ul>
+     *
+     * <p>The flag of movement, sneak and sprint is never touched, since those are continuous states read
+     * every tick: clearing them would stop the player walking. The attack and use flags are only cleared
+     * while the mod is <em>not</em> driving that channel itself, so a feature bound to
+     * {@code Shift+Left Click} can still hold the button - which is the whole point of binding it.</p>
      *
      * <p>This runs at the start of a client tick, which is before vanilla's own key-binding pass for that
-     * tick. Keyboard events are polled between ticks rather than during one, so the drained state cannot be
+     * tick. Keyboard events are polled between ticks rather than during one, so the cleared state cannot be
      * refilled before vanilla reads it.</p>
      *
      * <p>Only keys of a <em>complete</em> combination are claimed. Pressing {@code 1} alone when only
-     * {@code Shift+1} is bound must still select the hotbar slot, so nothing is taken from the player.</p>
+     * {@code Shift+1} is bound must still select the hotbar slot, and clicking alone when only
+     * {@code Shift+Left Click} is bound must still attack.</p>
      */
     private void claimBoundKeys(Minecraft client) {
+        this.sampledHeldKeys = null;
+
         if (client.options == null || client.player == null) {
             return;
         }
@@ -266,47 +288,68 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             return;
         }
 
-        Set<String> claimed = this.claimedKeys(client);
+        // Sample the physical state once, before anything is cleared. Everything else this tick works from
+        // this snapshot, which is what allows the buttons to be cleared below without the combination
+        // appearing to be released - the combination is decided from the state as it was, not as it is
+        // after suppression.
+        Set<String> held = HeldKeys.heldAmong(this.collectCandidateKeys(client), client);
+        this.sampledHeldKeys = held;
+
+        Set<String> claimed = this.claimedKeysFrom(held);
 
         if (claimed.isEmpty()) {
             return;
         }
 
         for (KeyMapping mapping : client.options.keyMappings) {
-            // Only ordinary bindings are taken. Three kinds are left alone:
-            //  * the mod's own mappings, whose presses are the hotkeys handled below;
-            //  * the attack and use buttons, because those are the buttons this mod itself drives - taking
-            //    their presses would stop the player from fighting or mining at all when a combination
-            //    happens to contain a mouse button.
-            if (claimed.contains(mapping.saveString())
-                    && !this.ownsMapping(mapping)
-                    && !this.isChannelMapping(mapping, client)) {
-                while (mapping.consumeClick()) {
-                    // Drain the press vanilla queued for this key.
-                }
+            if (!claimed.contains(mapping.saveString()) || this.ownsMapping(mapping)) {
+                continue;
+            }
+
+            // A queued press drives every one-shot binding: hotbar slots, drop, inventory, chat, and the
+            // single attack a click performs.
+            while (mapping.consumeClick()) {
+                // Drain the press vanilla queued for this key.
+            }
+
+            // Attack and use also keep acting for as long as their flag is set - {@code continueAttack}
+            // reads it every tick - so a combination containing the left button would keep fighting. The
+            // flag is cleared only while the mod is not driving that channel itself, so a feature bound to
+            // {@code Shift+Left Click} can still hold the button, which is why it was bound there.
+            //
+            // Movement, sneak and sprint are never touched: those are continuous states the player owns.
+            if (this.isChannelMapping(mapping, client)
+                    && !this.input.owns(this.channelOf(mapping, client))) {
+                mapping.isDown = false;
             }
         }
     }
 
-    /** True for the vanilla attack or use button, which automation drives itself. */
+    /** True for the vanilla attack or use button, which vanilla acts on while it is held. */
     private boolean isChannelMapping(KeyMapping mapping, Minecraft client) {
         return mapping == client.options.keyAttack || mapping == client.options.keyUse;
     }
 
+    /** The channel a vanilla button belongs to. */
+    private ActionChannel channelOf(KeyMapping mapping, Minecraft client) {
+        return mapping == client.options.keyAttack ? ActionChannel.ATTACK : ActionChannel.USE;
+    }
+
     /**
-     * The keys of every combination that is complete right now and not merely part of a longer one.
+     * The keys of every combination that is complete in {@code held} and not merely part of a longer one.
      *
      * <p>The shadowing rule is the same as for firing, so a combination that yields to a longer one does
      * not take that longer combination's keys either.</p>
+     *
+     * @param held the physical key state sampled at the start of this tick, before any suppression
      */
-    private Set<String> claimedKeys(Minecraft client) {
+    private Set<String> claimedKeysFrom(Set<String> held) {
         Set<String> claimed = new java.util.HashSet<>();
 
         for (Feature feature : Feature.values()) {
             KeyCombo combo = this.config.key(feature);
 
-            if (!combo.isBound() || !combo.matches(
-                    HeldKeys.heldAmong(new LinkedHashSet<>(combo.keys()), client))) {
+            if (!combo.isBound() || !combo.matches(held)) {
                 continue;
             }
 
@@ -315,9 +358,7 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             for (Feature other : Feature.values()) {
                 KeyCombo otherCombo = this.config.key(other);
 
-                if (other != feature && combo.isShadowedBy(otherCombo)
-                        && otherCombo.matches(
-                                HeldKeys.heldAmong(new LinkedHashSet<>(otherCombo.keys()), client))) {
+                if (other != feature && combo.isShadowedBy(otherCombo) && otherCombo.matches(held)) {
                     shadowed = true;
                     break;
                 }
@@ -330,12 +371,29 @@ public final class ClientInteractionsClient implements ClientModInitializer {
 
         KeyCombo configCombo = this.config.configKey();
 
-        if (configCombo.isBound() && configCombo.matches(
-                HeldKeys.heldAmong(new LinkedHashSet<>(configCombo.keys()), client))) {
+        if (configCombo.isBound() && configCombo.matches(held)) {
             claimed.addAll(configCombo.keys());
         }
 
         return claimed;
+    }
+
+    /**
+     * The held-key set sampled at the start of this tick, before anything was suppressed.
+     *
+     * <p>Suppression clears the attack and use buttons, and those are exactly the keys a combination may
+     * contain. Reading the live state later in the same tick would therefore see the button as released and
+     * undo the feature that had just been switched on. Deciding from this snapshot keeps matching and
+     * suppression independent of each other.</p>
+     *
+     * @return the snapshot, or {@code null} when it was not taken this tick (no player, or a screen open)
+     */
+    private Set<String> heldSnapshot(Minecraft client) {
+        if (this.sampledHeldKeys != null) {
+            return this.sampledHeldKeys;
+        }
+
+        return HeldKeys.heldAmong(this.collectCandidateKeys(client), client);
     }
 
     /** True for a mapping this mod created and drives. */
@@ -413,7 +471,7 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             }
         }
 
-        this.updateFiredFeatures(this.collectCandidateKeys(client), client);
+        this.updateFiredFeatures(client);
     }
 
     /**
@@ -433,6 +491,14 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             candidates.add(this.openConfigKey.saveString());
         }
 
+        // The attack and use buttons are always sampled, even when no binding mentions them. A combination
+        // is decided from a snapshot taken before suppression, and suppression clears exactly these two
+        // flags, so they have to be in the snapshot for a mouse-button combination to be seen at all.
+        if (client.options != null) {
+            candidates.add(client.options.keyAttack.saveString());
+            candidates.add(client.options.keyUse.saveString());
+        }
+
         return candidates;
     }
 
@@ -447,7 +513,7 @@ public final class ClientInteractionsClient implements ClientModInitializer {
      * <p>A longer combination wins over any shorter one it contains, so binding {@code A+C} blocks a plain
      * {@code C} binding while both keys are down.</p>
      */
-    private void updateFiredFeatures(Set<String> candidates, Minecraft client) {
+    private void updateFiredFeatures(Minecraft client) {
         // With a screen open vanilla releases every key, and the player's keys are going to the GUI, so the
         // held state is meaningless. Leaving it alone also stops a hold from re-firing - and therefore
         // switching itself off - the moment the screen closes.
@@ -455,7 +521,9 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             return;
         }
 
-        Set<String> heldKeys = HeldKeys.heldAmong(candidates, client);
+        // The snapshot taken before this tick's suppression, so claiming the attack button cannot make a
+        // combination look released and switch the feature straight back off.
+        Set<String> heldKeys = this.heldSnapshot(client);
 
         // Collect the combinations that are currently satisfied, longest first.
         List<Feature> satisfied = new ArrayList<>();

@@ -3,8 +3,8 @@
 **English** | [中文](#中文说明)
 
 > **Reading guide**
-> This English section is 1 933 words (9 697 characters without spaces) and takes about 7 minutes.
-> The Chinese section is 4 801 characters and takes about 9 minutes. The full [`LICENSE`](LICENSE) is
+> This English section is 1 978 words (9 933 characters without spaces) and takes about 7 minutes.
+> The Chinese section is 4 888 characters and takes about 9 minutes. The full [`LICENSE`](LICENSE) is
 > 1 212 characters (197 words).
 
 A client-side Fabric mod with eight independent automation features for Minecraft's two mouse buttons,
@@ -131,9 +131,12 @@ While a combination is held down, its keys no longer perform their normal game a
 runs the feature and does **not** switch to hotbar slot 1; the same holds for `Q`, `E`, `F` and the rest.
 Pressing `1` on its own still selects the slot, because only a complete combination is claimed.
 
-Only the queued press is taken, never the held state, so a combination containing movement keys or Shift
-still walks and crouches normally. The attack and use buttons are never taken either, so a binding such as
-`Shift+Left Click` does not stop you from fighting.
+The same applies to the mouse buttons. With `Shift+Left Click` bound, pressing that combination switches
+the feature and does **not** also punch; a plain left click still attacks.
+
+Movement, sneak and sprint are never touched, so a combination containing W or Shift still walks and
+crouches normally. The attack and use buttons are also left alone while the mod is driving them itself,
+which is what lets a feature bound to `Shift+Left Click` keep holding the button after it is switched on.
 
 A rebind takes effect immediately, without restarting the game.
 
@@ -195,8 +198,8 @@ classpath regardless of the declaration.
   holds, clicks, one-tick-per-tick timing, mutual exclusion, the master switch, screen behaviour,
   combination matching, that a multi-key combination is captured whole, that it fires on a real press
   without toggling itself back off, that a longer combination blocks a shorter one it contains, that a
-  bound key no longer performs its ordinary game action while the key alone still does, that a hotkey is
-  refused while the master switch is off, that a forced hold swings the arm like a real press, that a hold
+  bound key no longer performs its ordinary game action while the key alone still does, that a mouse-button
+  combination does not also attack, that a hotkey is refused while the master switch is off, that a forced hold swings the arm like a real press, that a hold
   resumes after a screen closes, that a rebind fires without a restart, that a mouse button binds too, that
   a typed number reaches the engine and is clamped, that fast click injects the extra clicks for a real
   press, and that both screens draw visible text with no widget overlapping another or leaving the screen
@@ -240,7 +243,7 @@ if something is missing.
 **[English](#client-interactions)** | **中文**
 
 > **阅读指引**
-> 中文部分 4 801 字（不计空白），大约需要 9 分钟；英文部分 1 933 词（不计空格 9 697 字符），
+> 中文部分 4 888 字（不计空白），大约需要 9 分钟；英文部分 1 978 词（不计空格 9 933 字符），
 > 大约需要 6 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
 
 一个客户端 Fabric 模组，为 Minecraft 的两个鼠标键——**攻击**（左键）与**使用**（右键）——提供
@@ -356,8 +359,12 @@ if something is missing.
 组合键按住期间，它的键不再执行原本的游戏动作。绑定 `Shift+1` 会执行功能，**不会**切换到第 1 格
 快捷栏；`Q`、`E`、`F` 等键同理。单独按 `1` 仍然会切换快捷栏，因为只有完整组合才会被接管。
 
-只拦截“按下”这一事件，不拦截按住状态，所以包含移动键或 Shift 的组合仍然能正常行走和潜行。
-攻击键与使用键也不会被拦截，因此像 `Shift+左键` 这样的绑定不会影响你打怪。
+鼠标键同理：绑定 `Shift+左键` 时，按下这个组合会切换功能，**不会**顺带打出一拳；单独按左键仍然
+正常攻击。
+
+移动、潜行、疾跑这些键从不拦截，所以包含 W 或 Shift 的组合仍然能正常行走和潜行。当模组自己在
+驱动攻击键或使用键时，也不会去清它们的状态——正因如此，绑定到 `Shift+左键` 的功能开启后才能继续
+按住按钮。
 
 改键无需重启即刻生效。
 
@@ -413,7 +420,8 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
   跨刻分布，以及 7000 刻的漂移检查。
 * 1.21.10、1.21.11、26.3 有游戏内测试：启动真实客户端、创建世界，断言长按、点击、每刻一步的
   计时、互斥、总开关、界面行为、组合键匹配、多键组合被完整捕获、按下后不会自我抵消、
-  长组合会屏蔽包含的短绑定、绑定的组合键不再触发原版动作而单键仍可单独使用、总开关关闭时
+  长组合会屏蔽包含的短绑定、绑定的组合键不再触发原版动作而单键仍可单独使用、含鼠标键的组合
+  不会顺带攻击、总开关关闭时
   快捷键会被拒绝、长按会像真实按下一样挥动手臂、界面关闭后长按会恢复、改键无需重启即生效、
   鼠标键可绑定、输入的数值会进入引擎并被钳制、快速连点确实为一次真实按下注入了额外点击，
   以及在较小 GUI 下两个界面都能画出可见文字、且没有按钮互相重叠或跑出屏幕。

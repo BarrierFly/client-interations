@@ -40,6 +40,11 @@ public final class GameInput {
     /** Whether the mod, rather than the player, is currently holding a channel down. */
     private final boolean[] owned = new boolean[ActionChannel.values().length];
 
+    /** Whether the mod, rather than the player, is currently holding a channel down. */
+    public boolean owns(ActionChannel channel) {
+        return this.owned[channel.ordinal()];
+    }
+
     public GameInput(Minecraft client) {
         this.client = client;
     }

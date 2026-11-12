@@ -71,6 +71,7 @@ public final class ClientGameTest implements FabricClientGameTest {
             testCombinationFiresWithRealKeys(context);
             testLongerCombinationBlocksShorter(context);
             testBoundKeyDoesNotReachVanilla(context);
+            testMouseCombinationDoesNotAttack(context);
             testMasterSwitchRefusesToggles(context);
             testHoldProducesASwing(context);
             testHoldSurvivesScreen(context);
@@ -1034,6 +1035,122 @@ public final class ClientGameTest implements FabricClientGameTest {
             return null;
         });
         context.waitTicks(3);
+    }
+
+    /**
+     * A bound combination that contains a mouse button must not also attack.
+     *
+     * <p>This is the reported case: binding {@code Shift+Left Click} used to switch the feature and punch at
+     * the same time. The combination is bound to a <em>use</em> feature so the feature itself never touches
+     * the attack button, which isolates the question - any swing observed would be the player's own press
+     * leaking through.</p>
+     */
+    private void testMouseCombinationDoesNotAttack(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            for (Feature other : Feature.values()) {
+                mod().config().setKey(other, peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+                mod().applyKeyBinding(other);
+            }
+            mod().config().setSettings(Feature.USE_PERIODIC_CLICK, new FeatureSettings(200, 1, 1));
+            mod().syncEngine();
+            mod().config().setKey(Feature.USE_PERIODIC_CLICK,
+                    combo("key.keyboard.left.shift", "key.mouse.left"));
+            mod().applyKeyBinding(Feature.USE_PERIODIC_CLICK);
+            // Aim at the sky: the swing then cannot come from hitting a block.
+            client().player.setXRot(-85.0F);
+            return null;
+        });
+        context.waitTicks(3);
+
+        // Control: with Shift NOT held the combination is incomplete, so a click must attack normally.
+        require(pressAndWatchSwing(context), "mouse combo: a plain click still attacks");
+
+        // The combination: Shift held, so the click must be claimed and must not attack.
+        context.getInput().holdKey(MODIFIER_KEY_SHIFT);
+        context.waitTicks(2);
+
+        boolean swung = pressAndWatchSwing(context);
+
+        require(compute(context, () -> mod().engine().isActive(Feature.USE_PERIODIC_CLICK)),
+                "mouse combo: the combination still switches its feature");
+        require(!swung, "mouse combo: the press does not also attack");
+
+        // Checked while the combination is still held: the mod must not be holding the attack button either.
+        require(compute(context, () -> !client().options.keyAttack.isDown()),
+                "mouse combo: the mod is not left holding the attack button");
+
+        compute(context, () -> {
+            client().options.keyAttack.isDown = false;
+            return null;
+        });
+        context.getInput().releaseKey(MODIFIER_KEY_SHIFT);
+        context.waitTicks(3);
+
+        compute(context, () -> {
+            client().player.setXRot(0.0F);
+            mod().engine().stopAll();
+            for (Feature other : Feature.values()) {
+                mod().config().setKey(other, peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+                mod().applyKeyBinding(other);
+            }
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(3);
+    }
+
+    /**
+     * Delivers one physical left press and reports whether vanilla swung the arm.
+     *
+     * <p>The swing is the witness rather than a count of queued presses, because vanilla consumes the press
+     * within the same tick and would leave nothing to count.</p>
+     */
+    private boolean pressAndWatchSwing(ClientGameTestContext context) {
+        // Clear the timers vanilla uses to throttle attacks. A screen that was opened earlier in the run
+        // leaves missTime at 10000, which makes startAttack return immediately - that would report "no swing"
+        // for a reason that has nothing to do with the claim pass under test.
+        compute(context, () -> {
+            client().missTime = 0;
+            client().rightClickDelay = 0;
+            client().options.keyAttack.isDown = false;
+            return null;
+        });
+
+        // Let any previous swing finish so each case starts clean.
+        for (int i = 0; i < 10 && compute(context, () -> client().player.swinging); i++) {
+            context.waitTick();
+        }
+
+        // The left button's index differs per version, so it is taken from the game's own attack mapping
+        // rather than assumed.
+        compute(context, () -> {
+            com.mojang.blaze3d.platform.InputConstants.Key left = com.mojang.blaze3d.platform.InputConstants
+                    .getKey(client().options.keyAttack.saveString());
+            net.minecraft.client.KeyMapping.set(left, true);
+            net.minecraft.client.KeyMapping.click(left);
+            return null;
+        });
+
+        boolean swung = false;
+
+        for (int i = 0; i < 4; i++) {
+            context.waitTick();
+
+            if (compute(context, () -> client().player.swinging)) {
+                swung = true;
+            }
+        }
+
+        compute(context, () -> {
+            com.mojang.blaze3d.platform.InputConstants.Key left = com.mojang.blaze3d.platform.InputConstants
+                    .getKey(client().options.keyAttack.saveString());
+            net.minecraft.client.KeyMapping.set(left, false);
+            return null;
+        });
+        context.waitTicks(2);
+
+        return swung;
     }
 
     /**

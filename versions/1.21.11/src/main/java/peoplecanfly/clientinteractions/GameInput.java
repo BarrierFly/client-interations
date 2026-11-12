@@ -48,6 +48,11 @@ public final class GameInput {
         this.client = client;
     }
 
+    /** Whether the mod, rather than the player, is currently holding a channel down. */
+    public boolean owns(ActionChannel channel) {
+        return this.owned[channel.ordinal()];
+    }
+
     /**
      * Performs one tick worth of automation for one channel.
      *
