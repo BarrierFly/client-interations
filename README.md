@@ -3,8 +3,8 @@
 **English** | [中文](#中文说明)
 
 > **Reading guide**
-> This English section is 1 978 words (9 933 characters without spaces) and takes about 7 minutes.
-> The Chinese section is 4 888 characters and takes about 9 minutes. The full [`LICENSE`](LICENSE) is
+> This English section is 2 019 words (10 814 characters without spaces) and takes about 7 minutes.
+> The Chinese section is 5 249 characters and takes about 10 minutes. The full [`LICENSE`](LICENSE) is
 > 1 212 characters (197 words).
 
 A client-side Fabric mod with eight independent automation features for Minecraft's two mouse buttons,
@@ -45,6 +45,10 @@ Grouped per button: **Attack** and **Use**. Times are game ticks (1 tick = 50 ms
 Fast click is the only feature that does nothing by itself. Turn it on and the next time **you** click
 that mouse button, the mod repeats the click for you, so one physical click becomes `Clicks` clicks.
 Every other feature acts on its own once switched on.
+
+Those extra clicks are also spread one per tick, for the same reason as periodic click: vanilla throttles
+a second attack in the same tick, so a same-tick burst would really be one hit. The repeats start on the
+tick after your press, which is the first tick the game can act on them.
 
 ### Why periodic click fires its clicks on separate ticks
 
@@ -95,12 +99,16 @@ Timers keep running in every feature.
 
 Open it from Mod Menu, or bind a key for it with the **Key** button on the config screen (no key is bound
 by default). There is one page per button, and the
-page switch is the top right button, so the five features on screen are exactly the ones that exclude
+page switch is the top right button, so the four features on screen are exactly the ones that exclude
 each other.
 
 Each row is one feature: the name toggles it, the key button next to it rebinds it, and the labelled
 fields hold its numbers. The row widths come from one width budget, so nothing can run past the edge, and
 the row spacing shrinks on a short window so the last row never sits under Done.
+
+Numbers are typed into the field. The field keeps what you typed and the stored value is clamped to the
+engine's range; if clamping one number also changed its partner (a hold cannot be longer than its
+interval), the partner's field is updated to what is actually stored.
 
 ### Combinations and mouse buttons
 
@@ -110,7 +118,8 @@ same kind of binding. Modifiers are not special, they are simply keys.
 
 Open the key button, press the keys in any order, then press **Done**. Nothing is committed until Done,
 so multi-key combinations like `A+C` can be built; **Undo** removes the last key and **Clear** empties
-the set. The screen shows the saved binding and the one being built.
+the set. The screen shows the saved binding and the one being built. **Enter** also confirms; **Esc**
+always cancels without saving.
 
 Matching rules:
 
@@ -124,6 +133,9 @@ Matching rules:
 If one feature owns `A+C` and another owns plain `C`, pressing both keys runs **only** the `A+C`
 feature. The longer combination takes precedence, and the shorter one works again once the longer is
 released. This is what keeps a single key usable both alone and as part of a combination.
+
+The config-opening combination follows the same rule, and wins an exact tie against a feature, so one
+press never both opens the screen and toggles something.
 
 ### A bound key stops doing its ordinary job
 
@@ -139,6 +151,10 @@ crouches normally. The attack and use buttons are also left alone while the mod 
 which is what lets a feature bound to `Shift+Left Click` keep holding the button after it is switched on.
 
 A rebind takes effect immediately, without restarting the game.
+
+The mod adds its own key entries to the controls screen so the bindings have names, but those entries stay
+**unbound**: the combination is matched from the keys themselves. Writing a key into them would take that
+key away from whatever vanilla action already owns it, so a hotkey on `W` would stop you walking.
 
 ### Master switch
 
@@ -190,20 +206,22 @@ classpath regardless of the declaration.
 
 ## Tests
 
-* 51 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
+* 66 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
   master switch, starting with the master switch off, combination matching (sets of keys, mouse buttons,
-  priority between overlapping bindings), fast click being a multiplier, the periodic-click tick spread,
+  priority between overlapping bindings, the config key winning a tie, an extra modifier blocking a
+  binding), which keys vanilla loses, fast click being a paced multiplier, the periodic-click tick spread,
   and a 7000 tick drift check.
 * 1.21.10, 1.21.11 and 26.3 have in-game tests that boot a real client, create a world, and assert
   holds, clicks, one-tick-per-tick timing, mutual exclusion, the master switch, screen behaviour,
   combination matching, that a multi-key combination is captured whole, that it fires on a real press
-  without toggling itself back off, that a longer combination blocks a shorter one it contains, that a
+  without toggling itself back off, that an extra modifier blocks a plain binding, that a longer
+  combination blocks a shorter one it contains, that a
   bound key no longer performs its ordinary game action while the key alone still does, that a mouse-button
   combination does not also attack, that a hotkey is refused while the master switch is off, that a forced hold swings the arm like a real press, that a hold
   resumes after a screen closes, that a rebind fires without a restart, that a mouse button binds too, that
   a typed number reaches the engine and is clamped, that fast click injects the extra clicks for a real
-  press, and that both screens draw visible text with no widget overlapping another or leaving the screen
-  at a small gui.
+  press and stops after them, and that both screens draw visible text with no widget overlapping another or
+  leaving the screen at a small gui.
 * 1.19.4, 1.20.1 and 1.21.1 have no client gametest API; they are verified by compiling, packaging and
   starting the game.
 
@@ -211,6 +229,8 @@ classpath regardless of the declaration.
 
 * **A feature does nothing** - its key is unbound, the **Automation** master switch is off (a hotkey is
   refused and says so), or another feature of the same button is running (they exclude each other).
+* **A bound key does nothing** - holding a Ctrl/Shift/Alt/Win that is not part of the binding blocks it,
+  deliberately.
 * **Stops when I open my inventory** - expected for attack; see above.
 * **Slower than configured** - vanilla is dropping the extra actions; see Vanilla limits.
 * **Wrong version error** - the jar does not match your game version.
@@ -243,8 +263,8 @@ if something is missing.
 **[English](#client-interactions)** | **中文**
 
 > **阅读指引**
-> 中文部分 4 888 字（不计空白），大约需要 9 分钟；英文部分 1 978 词（不计空格 9 933 字符），
-> 大约需要 6 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
+> 中文部分 5 249 字（不计空白），大约需要 10 分钟；英文部分 2 019 词（不计空格 10 814 字符），
+> 大约需要 7 分钟。完整的 [`LICENSE`](LICENSE) 为 1 212 字符（197 词）。
 
 一个客户端 Fabric 模组，为 Minecraft 的两个鼠标键——**攻击**（左键）与**使用**（右键）——提供
 **八个互相独立**的自动化功能。每个功能都有自己的开关、自己的快捷键和自己的参数。
@@ -281,6 +301,9 @@ if something is missing.
 
 快速连点是唯一不会自行动作的功能。开启后，**你**下一次按下该鼠标键时，模组替你把这个点击
 重复若干次，于是一次物理点击变成 `次数` 次点击。其余功能一旦开启都会自动执行。
+
+这些追加的点击同样是一刻一次、分散打出的，理由与周期点击相同：原版会限制同一刻内的第二次攻击，
+挤在同一刻的连发实际只有一下。追加的点击从你按下后的下一刻开始。
 
 ### 周期点击为什么把点击分散到不同刻
 
@@ -326,11 +349,14 @@ if something is missing.
 
 从 Mod Menu 打开，或用配置界面上的 **Key** 按钮给它绑一个键（默认不绑定）。每个按键一页，
 翻页按钮在右上角，所以
-屏幕上的五个功能正好就是互斥的那五个。
+屏幕上的四个功能正好就是互斥的那四个。
 
 每一行是一个功能：点名字切换开关，点它旁边的按键按钮重新绑定，带标签的输入框填写
 数值。各列宽度由同一份宽度预算分配，所以不会跑出屏幕；窗口矮时行距会收紧，
 最后一行不会压在 Done 上。
+
+数值直接在输入框里输入。输入框保留你键入的内容，实际保存的值会被钳制到引擎的上下限；如果
+钳制某个数值同时改变了同一行的另一个数值（按住不能长于间隔），那一格会更新为真正保存的值。
 
 ### 组合键与鼠标键
 
@@ -340,7 +366,7 @@ if something is missing.
 
 点开按键按钮，按任意顺序按下这些键，然后按 **Done**。按下 Done 之前不会提交，所以
 `A+C` 这类多键组合可以完整录入；**Undo** 删掉最后一个键，**Clear** 清空。界面会同时
-显示已保存的绑定和正在录入的绑定。
+显示已保存的绑定和正在录入的绑定。**Enter** 同样确认；**Esc** 始终是不保存退出。
 
 匹配规则：
 
@@ -353,6 +379,9 @@ if something is missing.
 如果一个功能占用了 `A+C`，另一个占用了单独的 `C`，那么同时按下这两个键时**只会**执行
 `A+C` 的功能。长组合优先，松开后短组合又能正常工作。这样同一个键既能单独用，也能作为
 组合的一部分。
+
+打开配置界面的组合遵循同样的规则，并且在长度相同时优先于功能快捷键，所以一次按键不会既
+打开界面又切换功能。
 
 ### 绑定的键不再执行原版动作
 
@@ -367,6 +396,10 @@ if something is missing.
 按住按钮。
 
 改键无需重启即刻生效。
+
+模组会在按键设置里加入自己的条目，让绑定有名字，但这些条目**保持未绑定**：组合键是由键本身
+匹配的。把键写进原版映射会从本来使用该键的原版动作手里抢走它——例如快捷键绑到 `W` 就会让你
+无法行走。
 
 ### 总开关
 
@@ -415,15 +448,18 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 
 ## 测试
 
-* 51 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
-  组合键匹配（键集合、鼠标键、重叠绑定之间的优先级）、快速连点的倍率语义、周期点击的
+* 66 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
+  组合键匹配（键集合、鼠标键、重叠绑定之间的优先级、配置键在长度相同时优先、多余的修饰键会
+  屏蔽绑定）、哪些键会被接管、快速连点的分刻倍率语义、周期点击的
   跨刻分布，以及 7000 刻的漂移检查。
 * 1.21.10、1.21.11、26.3 有游戏内测试：启动真实客户端、创建世界，断言长按、点击、每刻一步的
   计时、互斥、总开关、界面行为、组合键匹配、多键组合被完整捕获、按下后不会自我抵消、
+  多余的修饰键会屏蔽普通绑定、
   长组合会屏蔽包含的短绑定、绑定的组合键不再触发原版动作而单键仍可单独使用、含鼠标键的组合
   不会顺带攻击、总开关关闭时
   快捷键会被拒绝、长按会像真实按下一样挥动手臂、界面关闭后长按会恢复、改键无需重启即生效、
-  鼠标键可绑定、输入的数值会进入引擎并被钳制、快速连点确实为一次真实按下注入了额外点击，
+  鼠标键可绑定、输入的数值会进入引擎并被钳制、快速连点确实为一次真实按下按刻注入了额外点击
+  并在达标后停止，
   以及在较小 GUI 下两个界面都能画出可见文字、且没有按钮互相重叠或跑出屏幕。
 * 1.19.4、1.20.1、1.21.1 没有客户端 gametest API，通过编译、打包和启动游戏验证。
 
@@ -431,6 +467,7 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 
 * **某个功能没反应** — 快捷键未绑定，或 **自动化** 总开关关闭（此时按快捷键会被拒绝并说明），
   或同一按键上已有其它功能在运行（它们互斥）。
+* **绑了键却没反应** — 按住了不属于该绑定的 Ctrl/Shift/Alt/Win 会使其失效，这是有意的。
 * **打开背包后停了** — 攻击功能的预期行为，见上文。
 * **比设定值慢** — 原版丢弃了多余动作，见「原版限制」。
 * **版本不匹配** — jar 与游戏版本不对应。

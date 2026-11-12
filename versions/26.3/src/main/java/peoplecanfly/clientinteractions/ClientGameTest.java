@@ -69,6 +69,7 @@ public final class ClientGameTest implements FabricClientGameTest {
             testValueFieldAcceptsTypedNumbers(context);
             testFullCombinationIsCaptured(context);
             testCombinationFiresWithRealKeys(context);
+            testExtraModifierBlocks(context);
             testLongerCombinationBlocksShorter(context);
             testBoundKeyDoesNotReachVanilla(context);
             testMouseCombinationDoesNotAttack(context);
@@ -541,34 +542,35 @@ public final class ClientGameTest implements FabricClientGameTest {
                         .matches(java.util.Set.of("key.keyboard.k", "key.keyboard.left.shift"))),
                 "combo: a Shift binding matches with Shift");
 
-        // And the real binding path still works: the mapping ends up on the main key only.
+        // Applying a binding must not steal the key from vanilla: on this version a key has a single
+        // mapping, so writing the mod's key into its mapping would break whatever vanilla bound it to
+        // (W would stop walking, 1 would stop selecting the hotbar).
         compute(context, () -> {
             mod().applyKeyBinding(Feature.ATTACK_HOLD);
             return null;
         });
-        require(compute(context, () -> "key.keyboard.k".equals(mod().keyFor(Feature.ATTACK_HOLD).saveString())),
-                "combo: the vanilla mapping is set to the main key");
+        require(compute(context, () -> mod().keyFor(Feature.ATTACK_HOLD).isUnbound()),
+                "combo: the mod's own mapping stays unbound, so vanilla keeps every key");
 
-        // A binding changed at runtime must fire without restarting. Vanilla only rebuilds its
-        // key-to-binding table on load and when the key binds screen opens, so applyKeyBinding has to do
-        // it; without that the mapping would be inert until the next launch.
+        // A binding changed at runtime must work without restarting. Nothing is registered with vanilla,
+        // so the proof is that the hotkey poll sees the new key immediately.
         compute(context, () -> {
             mod().config().setKey(Feature.ATTACK_HOLD,
                     peoplecanfly.clientinteractions.common.KeyCombo.of("key.keyboard.j"));
             mod().applyKeyBinding(Feature.ATTACK_HOLD);
             return null;
         });
-        require(compute(context, () -> keyFiresWithoutRestart("key.keyboard.j")),
+        require(compute(context, () -> hotkeyFires("key.keyboard.j")),
                 "combo: a rebind takes effect immediately, without a restart");
 
-        // Mouse buttons use the same table, so one must be bindable and fire the same way.
+        // A mouse button is polled the same way, so one must be bindable too.
         compute(context, () -> {
             mod().config().setKey(Feature.ATTACK_HOLD,
                     peoplecanfly.clientinteractions.common.KeyCombo.of("key.mouse.4"));
             mod().applyKeyBinding(Feature.ATTACK_HOLD);
             return null;
         });
-        require(compute(context, () -> keyFiresWithoutRestart("key.mouse.4")),
+        require(compute(context, () -> hotkeyFires("key.mouse.4")),
                 "combo: a mouse button binds and fires like a key");
 
         compute(context, () -> {
@@ -582,31 +584,15 @@ public final class ClientGameTest implements FabricClientGameTest {
     }
 
     /**
-     * True when vanilla's key-to-binding table now resolves a press of {@code keyName} to this mod's
-     * mapping for {@code ATTACK_HOLD}.
+     * True when the hotkey router resolves a press of {@code keyName} to {@code ATTACK_HOLD}.
      *
-     * <p>This is exactly what {@code KeyMapping#resetMapping} is responsible for: a mapping whose key
-     * field changed but which was never re-registered is invisible to a real press, which is the bug that
-     * made a rebind inert until the next launch.</p>
+     * <p>The router is the code that decides a press, so this is the same decision a real key press goes
+     * through. It is also independent of the vanilla mapping, which the mod deliberately leaves unbound.</p>
      */
-    private static boolean keyFiresWithoutRestart(String keyName) {
-        net.minecraft.client.KeyMapping mapping =
-                ClientInteractionsClient.get().keyFor(Feature.ATTACK_HOLD);
-
-        if (mapping == null || mapping.isUnbound() || !keyName.equals(mapping.saveString())) {
-            return false;
-        }
-
-        // KeyMapping.set dispatches through the same table a real press uses, so if the mapping receives
-        // the state change it will also receive the press.
-        com.mojang.blaze3d.platform.InputConstants.Key key =
-                com.mojang.blaze3d.platform.InputConstants.getKey(keyName);
-
-        net.minecraft.client.KeyMapping.set(key, true);
-        boolean receivedDown = mapping.isDown();
-        net.minecraft.client.KeyMapping.set(key, false);
-
-        return receivedDown && !mapping.isDown();
+    private static boolean hotkeyFires(String keyName) {
+        return peoplecanfly.clientinteractions.common.HotkeyRouter
+                .claimedKeys(java.util.Set.of(keyName), ClientInteractionsClient.get().config())
+                .contains(keyName);
     }
 
     /**
@@ -639,10 +625,17 @@ public final class ClientGameTest implements FabricClientGameTest {
 
         pressAttackKey(context, true);
 
+        // The repeats are spread one per tick, so they need as many ticks as there are clicks. Waiting
+        // past that checks both the count and that the repeats stop: a leak would overshoot.
+        context.waitTicks(5);
         int injected = compute(context, () -> mod().input().injectedClicks());
         LOGGER.info("fast click: injected {} extra clicks for one player press", injected);
         require(injected == 5,
-                "fast click: one press becomes 6 clicks, so 5 extra, saw " + injected);
+                "fast click: one press becomes 6 clicks spread over ticks, so 5 extra, saw " + injected);
+
+        context.waitTicks(5);
+        require(compute(context, () -> mod().input().injectedClicks() == 5),
+                "fast click: the repeats stop after count clicks");
 
         stop(context, Feature.ATTACK_FAST_CLICK);
         context.waitTicks(2);
@@ -723,6 +716,53 @@ public final class ClientGameTest implements FabricClientGameTest {
             return null;
         });
         context.waitTicks(1);
+    }
+
+    /**
+     * A held modifier that is not part of the binding must block it.
+     *
+     * <p>This is the regression check for a binding that fired on the wrong key state: the held keys used
+     * to be sampled only from the keys some binding mentioned, so a plain {@code K} binding fired while
+     * Shift was held, because Shift was never looked at. Pressing Shift+K must do nothing, and K alone
+     * must still work.</p>
+     */
+    private void testExtraModifierBlocks(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD, combo("key.keyboard.k"));
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(2);
+
+        context.getInput().holdShift();
+        context.waitTicks(2);
+        context.getInput().holdKey(KEY_K);
+        context.waitTicks(3);
+        require(compute(context, () -> !mod().engine().isActive(Feature.ATTACK_HOLD)),
+                "modifier: Shift+K does not fire a plain K binding");
+
+        context.getInput().releaseKey(KEY_K);
+        context.getInput().releaseShift();
+        context.waitTicks(3);
+
+        context.getInput().holdKey(KEY_K);
+        context.waitTicks(3);
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_HOLD)),
+                "modifier: K alone still fires the plain binding");
+        context.getInput().releaseKey(KEY_K);
+        context.waitTicks(3);
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().applyKeyBinding(Feature.ATTACK_HOLD);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(2);
     }
 
     /**

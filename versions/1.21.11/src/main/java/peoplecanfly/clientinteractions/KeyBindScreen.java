@@ -4,9 +4,9 @@ import com.mojang.blaze3d.platform.InputConstants;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 import peoplecanfly.clientinteractions.common.Feature;
 import peoplecanfly.clientinteractions.common.KeyCombo;
@@ -21,13 +21,14 @@ import peoplecanfly.clientinteractions.common.StatusText;
  * {@code Ctrl+Shift+Alt+R} exactly as pressed. Any key may take part - an ordinary letter, a modifier, or a
  * mouse button - because the combination is a set of keys held together, not a key plus modifier flags.</p>
  *
- * <p>Unlike the previous design, a press does not end the capture. The player keeps adding keys and presses
- * <b>Done</b> to accept the combination, or <b>Cancel</b> to discard it. That is what makes combinations of
- * ordinary keys possible: with an automatic commit, the first letter would always end the capture.</p>
+ * <p>A press does not end the capture. The player keeps adding keys and presses <b>Done</b> to accept the
+ * combination, or <b>Cancel</b> to discard it. That is what makes combinations of ordinary keys possible:
+ * with an automatic commit, the first letter would always end the capture.</p>
  *
- * <h2>Why order is recorded</h2>
- * <p>The last key becomes the one vanilla is told about, because a {@code KeyMapping} can only own a single
- * key. It is also the key the player thinks of as "the" key.</p>
+ * <h2>Keys the screen itself needs</h2>
+ * <p>Escape and Enter cannot be captured: they are the screen's own cancel and confirm keys. Escape always
+ * means "leave without saving", never "clear" - Clear has its own button, and silently deleting the binding
+ * on cancel would be surprising.</p>
  *
  * <h2>Colours</h2>
  * <p>Every text colour carries an explicit alpha of {@code FF}. Vanilla skips drawing text whose colour has
@@ -65,30 +66,32 @@ public final class KeyBindScreen extends Screen {
         this.clearWidgets();
 
         int buttonTop = this.buttonTop();
+        int spacing = Math.max(56, Math.min(104, this.width / 3 - 4));
 
         this.addRenderableWidget(Button.builder(Component.literal("Done"), b -> this.apply())
-                .bounds(this.width / 2 - 152, buttonTop, 96, 20)
+                .bounds(this.width / 2 - spacing / 2, buttonTop, spacing, 20)
                 .build());
 
         this.addRenderableWidget(Button.builder(Component.literal("Undo"), b -> this.undo())
-                .bounds(this.width / 2 - 48, buttonTop, 96, 20)
+                .bounds(this.width / 2 - spacing * 3 / 2 - 2, buttonTop, spacing, 20)
                 .build());
 
         this.addRenderableWidget(Button.builder(Component.literal("Clear"), b -> this.clear())
-                .bounds(this.width / 2 + 56, buttonTop, 96, 20)
+                .bounds(this.width / 2 + spacing / 2 + 2, buttonTop, spacing, 20)
                 .build());
 
         this.addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> this.onClose())
-                .bounds(this.width / 2 - 48, buttonTop + 24, 96, 20)
+                .bounds(this.width / 2 - spacing / 2, buttonTop + 24, spacing, 20)
                 .build());
     }
 
     private int buttonTop() {
-        return Math.max(40, this.height - 76);
+        return Math.max(52, this.height - 76);
     }
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
+        // Screen#render draws the background on this version.
         super.render(graphics, mouseX, mouseY, delta);
 
         int center = this.width / 2;
@@ -153,6 +156,12 @@ public final class KeyBindScreen extends Screen {
             // Escape here means "leave without saving", not "clear": Clear has its own button, and
             // silently deleting the binding on cancel would be surprising.
             this.onClose();
+            return true;
+        }
+
+        if (event.isConfirmation()) {
+            // Enter confirms, like the Done button, instead of silently becoming part of the binding.
+            this.apply();
             return true;
         }
 

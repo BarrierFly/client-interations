@@ -166,6 +166,49 @@ class AutomationEngineTest {
     }
 
     @Test
+    @DisplayName("fast click spreads its extra clicks over consecutive ticks")
+    void fastClickRepeatsOneClickPerTick() {
+        RecordingHost host = new RecordingHost();
+        AutomationEngine engine = engine(host);
+        engine.setSettings(Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 4));
+        engine.activate(Feature.ATTACK_FAST_CLICK);
+        host.events.clear();
+
+        // The player's own press is not repeated on the same tick; vanilla is still processing it.
+        assertEquals(3, engine.recordPlayerClick(ActionChannel.ATTACK));
+        engine.tick();
+        assertEquals(0, host.count("click"), "the press tick itself emits nothing");
+
+        engine.tick();
+        assertEquals(1, host.count("click"), "the first repeat lands on the next tick");
+
+        engine.tick();
+        engine.tick();
+        assertEquals(3, host.count("click"), "one repeat per tick, three in total");
+
+        engine.tick();
+        assertEquals(3, host.count("click"), "and then it stops");
+        assertEquals(0, engine.pendingPlayerClicks(ActionChannel.ATTACK));
+    }
+
+    @Test
+    @DisplayName("stopping fast click drops the repeats it still owed")
+    void stoppingFastClickDropsPendingClicks() {
+        RecordingHost host = new RecordingHost();
+        AutomationEngine engine = engine(host);
+        engine.setSettings(Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 5));
+        engine.activate(Feature.ATTACK_FAST_CLICK);
+        engine.recordPlayerClick(ActionChannel.ATTACK);
+        engine.tick();
+        host.events.clear();
+
+        engine.stop(Feature.ATTACK_FAST_CLICK);
+        engine.tick();
+
+        assertEquals(0, host.count("click"), "no repeat may land after the feature was switched off");
+    }
+
+    @Test
     @DisplayName("fast click multiplies the player's click and nothing else changes it")
     void fastClickMultiplier() {
         AutomationEngine engine = engine(new RecordingHost());

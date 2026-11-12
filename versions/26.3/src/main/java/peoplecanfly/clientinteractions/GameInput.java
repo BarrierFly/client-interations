@@ -27,9 +27,14 @@ import peoplecanfly.clientinteractions.common.ActionChannel;
  *
  * <h2>What happens while a screen is open</h2>
  * <p>The vanilla client stops processing key bindings as soon as a screen or an overlay is open, and it also
- * raises {@code missTime} to 10000 while a screen is open. Attacks follow that rule exactly. The use channel
- * keeps working while a screen is open by pumping {@code startUseItem} itself, because a held use button is
- * not processed by the vanilla loop in that state either. Timers always keep running.</p>
+ * raises {@code missTime} to 10000 while a screen is open. Attacks follow that rule exactly. The use
+ * channel keeps working while a screen is open by pumping {@code startUseItem} itself, because a held use
+ * button is not processed by the vanilla loop in that state either. Timers always keep running.</p>
+ *
+ * <h2>What this class does not do</h2>
+ * <p>It never decides <em>when</em> to click: that is the engine's job. It only turns "N clicks this tick"
+ * into N calls, and "hold" into the vanilla flag. In particular the extra clicks of fast click are paced
+ * by the engine, one per tick, because vanilla swallows a same-tick burst.</p>
  */
 public final class GameInput {
     /** The value vanilla uses to mark "a screen is open". */
@@ -40,13 +45,13 @@ public final class GameInput {
     /** Whether the mod, rather than the player, is currently holding a channel down. */
     private final boolean[] owned = new boolean[ActionChannel.values().length];
 
+    public GameInput(Minecraft client) {
+        this.client = client;
+    }
+
     /** Whether the mod, rather than the player, is currently holding a channel down. */
     public boolean owns(ActionChannel channel) {
         return this.owned[channel.ordinal()];
-    }
-
-    public GameInput(Minecraft client) {
-        this.client = client;
     }
 
     /**
@@ -84,7 +89,11 @@ public final class GameInput {
         // does nothing visible whenever the crosshair is on air or a mob - the very common case. Emitting
         // the press here makes a forced hold behave exactly like a real press-and-hold.
         if (hold && !wasOwned && clicks == 0) {
-            this.client.startAttack();
+            this.click(ActionChannel.ATTACK, 1);
+        }
+
+        if (!this.vanillaInputActive()) {
+            return;
         }
 
         if (hold && this.client.missTime >= SCREEN_MISS_TIME) {
@@ -94,12 +103,8 @@ public final class GameInput {
             this.client.missTime = 0;
         }
 
-        if (!this.vanillaInputActive()) {
-            return;
-        }
-
-        for (int i = 0; i < clicks; i++) {
-            this.client.startAttack();
+        if (clicks > 0) {
+            this.click(ActionChannel.ATTACK, clicks);
         }
     }
 
@@ -109,44 +114,41 @@ public final class GameInput {
 
         // See applyAttack: a hold needs the queued press as well as the flag to do anything visible.
         if (hold && !wasOwned && clicks == 0 && this.vanillaInputActive()) {
-            this.client.startUseItem();
+            this.click(ActionChannel.USE, 1);
         }
 
         if (hold && !this.vanillaInputActive()) {
             LocalPlayer player = this.client.player;
 
+            // The vanilla loop does not run with a screen open, so keep the item use going ourselves while
+            // still honouring the vanilla four tick delay and the "already using an item" rule.
             if (player != null && this.client.rightClickDelay == 0 && !player.isUsingItem()) {
-                this.client.startUseItem();
+                this.click(ActionChannel.USE, 1);
             }
         }
 
-        for (int i = 0; i < clicks; i++) {
-            this.client.startUseItem();
+        if (clicks > 0) {
+            this.click(ActionChannel.USE, clicks);
         }
-
-        this.injected += clicks;
     }
 
-    /**
-     * Performs one of the player's own clicks {@code times} times, for fast click.
-     *
-     * <p>This is the only entry point fast click uses: the feature multiplies a real click instead of
-     * clicking on a timer, so it does nothing unless the player acts.</p>
-     */
-    public void playerClick(ActionChannel channel, int times) {
-        if (times <= 1) {
+    /** Calls the same entry point a real click uses, and counts it. */
+    private void click(ActionChannel channel, int clicks) {
+        // Attack follows vanilla and is dropped while a screen is open; use is deliberately allowed to
+        // keep working, as configured by the user.
+        if (channel == ActionChannel.ATTACK && !this.vanillaInputActive()) {
             return;
         }
 
-        for (int i = 0; i < times - 1; i++) {
+        for (int i = 0; i < clicks; i++) {
             if (channel == ActionChannel.ATTACK) {
                 this.client.startAttack();
             } else {
                 this.client.startUseItem();
             }
-        }
 
-        this.injected += times - 1;
+            this.injected++;
+        }
     }
 
     /** How many clicks the mod has injected, so a test can prove the multiplier really fired. */
@@ -213,9 +215,12 @@ public final class GameInput {
             return;
         }
 
-        KeyMapping mapping = channel == ActionChannel.ATTACK
-                ? this.client.options.keyAttack
-                : this.client.options.keyUse;
+        if (down && !this.vanillaInputActive()) {
+            // Never force a button down into an open screen. The hold is re-asserted once it closes.
+            return;
+        }
+
+        KeyMapping mapping = this.channelMapping(channel);
 
         if (mapping != null) {
             mapping.isDown = down;

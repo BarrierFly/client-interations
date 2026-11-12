@@ -143,6 +143,24 @@ public final class KeyCombo {
     }
 
     /**
+     * Every modifier key vanilla knows.
+     *
+     * <p>A combination blocks an extra modifier held outside it, so the caller has to poll these even when
+     * no binding mentions them. Otherwise {@code R} would fire while Shift is down simply because Shift
+     * was never sampled.</p>
+     */
+    public static Set<String> modifierKeys() {
+        return MODIFIER_KEYS;
+    }
+
+    /** True when both combinations consist of exactly the same keys, in any order. */
+    public boolean hasSameKeys(KeyCombo other) {
+        return other != null
+                && this.keys.size() == other.keys.size()
+                && this.keys.containsAll(other.keys);
+    }
+
+    /**
      * True when {@code other} is a longer combination that this one is part of.
      *
      * <p>Used to give the longer binding priority: while {@code A+C} is held, a feature bound to plain

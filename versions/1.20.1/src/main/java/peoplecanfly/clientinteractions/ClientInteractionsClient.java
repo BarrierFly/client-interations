@@ -15,12 +15,12 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
-import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import peoplecanfly.clientinteractions.common.ActionChannel;
 import peoplecanfly.clientinteractions.common.AutomationEngine;
 import peoplecanfly.clientinteractions.common.Feature;
+import peoplecanfly.clientinteractions.common.HotkeyRouter;
 import peoplecanfly.clientinteractions.common.KeyCombo;
 import peoplecanfly.clientinteractions.common.ModConfig;
 import peoplecanfly.clientinteractions.common.StatusText;
@@ -30,9 +30,9 @@ import peoplecanfly.clientinteractions.common.StatusText;
  *
  * <h2>Hotkeys</h2>
  * <p>Vanilla {@code KeyMapping} holds a single key and cannot express {@code Shift+R}, so the mod uses it
- * only to detect that the main key went down. The modifiers are matched separately against the
- * {@link KeyCombo} stored in the config, which makes {@code R} and {@code Shift+R} distinct bindings and
- * keeps a press from firing a feature whose combination does not match exactly.</p>
+ * only to detect that the main key went down. The full combination is matched against the keys actually
+ * held, which {@link HotkeyRouter} turns into three decisions that always agree: which binding wins,
+ * whether it just fired, and which keys vanilla must not act on.</p>
  */
 public final class ClientInteractionsClient implements ClientModInitializer {
     public static final String MOD_ID = "clientinteractions";
@@ -53,11 +53,8 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     /** Whether each channel's vanilla button was down on the previous tick, to detect a fresh press. */
     private final boolean[] playerKeyHeld = new boolean[ActionChannel.values().length];
 
-    /** The keys held on the previous tick, so a combination fires only on the tick it completes. */
-    private Set<String> previousHeldKeys = Set.of();
-
-    /** Features whose combination was already satisfied last tick, so holding does not retrigger. */
-    private final Set<Feature> firedFeatures = java.util.EnumSet.noneOf(Feature.class);
+    /** The single arbiter for hotkey priority, firing and key claiming. */
+    private final HotkeyRouter hotkeys = new HotkeyRouter();
 
     /**
      * The physical key state sampled at the start of this tick, before any suppression.
@@ -102,34 +99,20 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     }
 
     /**
-     * Pushes one feature's combination into its vanilla key mapping.
+     * Keeps a feature's vanilla key mapping unbound.
      *
-     * <p>Only the main key is written; the modifiers stay in the config, because vanilla has nowhere to
-     * put them. A mouse button works the same way, since vanilla reports those through the same mapping
-     * table.</p>
-     *
-     * <p>{@code KeyMapping#setKey} only assigns a field: it does not add the mapping to the
-     * key-to-binding table vanilla looks presses up in. That table is rebuilt by
-     * {@code KeyMapping#resetMapping}, which vanilla only calls when it loads the options and when the
-     * key binds screen opens. Without this call, a key bound at runtime would never fire until the next
-     * launch.</p>
+     * <p>Vanilla keeps a single mapping per key on this version ({@code Map<Key, KeyMapping>}), so writing
+     * a feature's key into its mapping would take that key away from whatever vanilla binding already owns
+     * it: binding a hotkey to {@code W} would stop the player walking. The hotkey does not need the mapping
+     * anyway - presses are detected by polling the keys themselves - so the mapping is deliberately left
+     * unbound and vanilla keeps every key it had.</p>
      */
     public void applyKeyBinding(Feature feature) {
         KeyMapping mapping = this.featureKeys.get(feature);
 
-        if (mapping == null) {
-            return;
+        if (mapping != null) {
+            mapping.setKey(UNBOUND);
         }
-
-        KeyCombo combo = this.config.key(feature);
-
-        if (!combo.isBound()) {
-            mapping.setKey(InputConstants.UNKNOWN);
-        } else {
-            mapping.setKey(InputConstants.getKey(combo.keyName()));
-        }
-
-        KeyMapping.resetMapping();
     }
 
     /** Rebinds every feature, e.g. after the config was reloaded. */
@@ -140,25 +123,13 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     }
 
     /**
-     * Pushes the config-opening combination into its vanilla key mapping.
-     *
-     * <p>Same rule as a feature: vanilla gets the primary key only, and the table is rebuilt so the change
-     * works without a restart.</p>
+     * Leaves the config-opening mapping unbound, for the same reason as a feature's: this version allows
+     * one vanilla mapping per key, and the combination is polled instead.
      */
     public void applyConfigKeyBinding() {
-        if (this.openConfigKey == null) {
-            return;
+        if (this.openConfigKey != null) {
+            this.openConfigKey.setKey(UNBOUND);
         }
-
-        KeyCombo combo = this.config.configKey();
-
-        if (!combo.isBound()) {
-            this.openConfigKey.setKey(InputConstants.UNKNOWN);
-        } else {
-            this.openConfigKey.setKey(InputConstants.getKey(combo.primaryKey()));
-        }
-
-        KeyMapping.resetMapping();
     }
 
     /** Pushes the current settings into the engine, which keeps running while they change. */
@@ -236,6 +207,10 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             this.applyKeyBinding(feature);
         }
 
+        // The saved config-opening key has to reach its mapping too, or it would stay inert until the
+        // player opened the capture screen once.
+        this.applyConfigKeyBinding();
+
         ClientTickEvents.START_CLIENT_TICK.register(client -> this.claimBoundKeys(client));
         ClientTickEvents.END_CLIENT_TICK.register(client -> this.onClientTick());
         HudRenderCallback.EVENT.register(new HudOverlay());
@@ -292,10 +267,11 @@ public final class ClientInteractionsClient implements ClientModInitializer {
         // this snapshot, which is what allows the buttons to be cleared below without the combination
         // appearing to be released - the combination is decided from the state as it was, not as it is
         // after suppression.
-        Set<String> held = HeldKeys.heldAmong(this.collectCandidateKeys(client), client);
+        Set<String> held = HeldKeys.heldAmong(this.collectCandidateKeys(client), client,
+                this.modHeldKeyNames(client));
         this.sampledHeldKeys = held;
 
-        Set<String> claimed = this.claimedKeysFrom(held);
+        Set<String> claimed = HotkeyRouter.claimedKeys(held, this.config);
 
         if (claimed.isEmpty()) {
             return;
@@ -336,64 +312,20 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     }
 
     /**
-     * The keys of every combination that is complete in {@code held} and not merely part of a longer one.
-     *
-     * <p>The shadowing rule is the same as for firing, so a combination that yields to a longer one does
-     * not take that longer combination's keys either.</p>
-     *
-     * @param held the physical key state sampled at the start of this tick, before any suppression
-     */
-    private Set<String> claimedKeysFrom(Set<String> held) {
-        Set<String> claimed = new java.util.HashSet<>();
-
-        for (Feature feature : Feature.values()) {
-            KeyCombo combo = this.config.key(feature);
-
-            if (!combo.isBound() || !combo.matches(held)) {
-                continue;
-            }
-
-            boolean shadowed = false;
-
-            for (Feature other : Feature.values()) {
-                KeyCombo otherCombo = this.config.key(other);
-
-                if (other != feature && combo.isShadowedBy(otherCombo) && otherCombo.matches(held)) {
-                    shadowed = true;
-                    break;
-                }
-            }
-
-            if (!shadowed) {
-                claimed.addAll(combo.keys());
-            }
-        }
-
-        KeyCombo configCombo = this.config.configKey();
-
-        if (configCombo.isBound() && configCombo.matches(held)) {
-            claimed.addAll(configCombo.keys());
-        }
-
-        return claimed;
-    }
-
-    /**
      * The held-key set sampled at the start of this tick, before anything was suppressed.
      *
      * <p>Suppression clears the attack and use buttons, and those are exactly the keys a combination may
      * contain. Reading the live state later in the same tick would therefore see the button as released and
      * undo the feature that had just been switched on. Deciding from this snapshot keeps matching and
      * suppression independent of each other.</p>
-     *
-     * @return the snapshot, or {@code null} when it was not taken this tick (no player, or a screen open)
      */
     private Set<String> heldSnapshot(Minecraft client) {
         if (this.sampledHeldKeys != null) {
             return this.sampledHeldKeys;
         }
 
-        return HeldKeys.heldAmong(this.collectCandidateKeys(client), client);
+        return HeldKeys.heldAmong(this.collectCandidateKeys(client), client,
+                this.modHeldKeyNames(client));
     }
 
     /** True for a mapping this mod created and drives. */
@@ -411,21 +343,41 @@ public final class ClientInteractionsClient implements ClientModInitializer {
         return false;
     }
 
+    /**
+     * Key names the mod is holding down itself for a running feature.
+     *
+     * <p>A hold writes the vanilla attack/use flag. Without this, a feature bound to a mouse button would
+     * see its own hold as the player pressing that button and keep toggling itself. The player pressing the
+     * button physically still counts, because the flag alone is not evidence of a press.</p>
+     */
+    private Set<String> modHeldKeyNames(Minecraft client) {
+        Set<String> names = new LinkedHashSet<>();
+
+        for (ActionChannel channel : ActionChannel.values()) {
+            if (this.input.owns(channel)) {
+                KeyMapping mapping = channel == ActionChannel.ATTACK
+                        ? client.options.keyAttack
+                        : client.options.keyUse;
+                names.add(mapping.saveString());
+            }
+        }
+
+        return names;
+    }
+
     private void onClientTick() {
         Minecraft client = Minecraft.getInstance();
 
         if (client.player == null || client.level == null) {
             this.engine.stopAll();
+            this.hotkeys.reset();
             this.playerKeyHeld[ActionChannel.ATTACK.ordinal()] = false;
             this.playerKeyHeld[ActionChannel.USE.ordinal()] = false;
             return;
         }
 
-        // A combination can be completed by any of its keys, but vanilla only reports the press of the one
-        // key a mapping owns. Watching the held set catches the moment a combination becomes complete,
-        // whatever order the keys went down in, and is also where a longer binding takes priority over a
-        // shorter one that it contains. Only the keys used by some binding are polled, because a key bound
-        // to nothing is not tracked by any mapping and would otherwise never appear.
+        // Hotkeys first, so a combination pressed this tick takes effect on this tick's automation. The
+        // decision uses the state sampled before vanilla decided what a bound key may also do.
         this.handleHotkeys(client);
 
         this.pollPlayerClicks(client, ActionChannel.ATTACK, client.options.keyAttack);
@@ -435,50 +387,51 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     }
 
     /**
-     * Fires the hotkey whose combination just became complete, giving longer combinations priority.
+     * Applies this tick's hotkey decisions.
      *
-     * <h2>When it fires</h2>
-     * <p>Only on the tick the held set changes, so holding the keys does not toggle repeatedly. Releasing
-     * and pressing again is a new trigger.</p>
-     *
-     * <h2>Priority</h2>
-     * <p>If one feature is bound to {@code A+C} and another to plain {@code C}, pressing {@code A} then
-     * {@code C} must run only the {@code A+C} feature. Without this the plain {@code C} feature would match
-     * too, because ordinary keys outside a binding are ignored (the player is always holding something).
-     * So only the longest matching combination is triggered, and shorter bindings contained in it are
-     * skipped for that press.</p>
+     * <p>Firing happens only on the tick a combination becomes complete, so holding the keys does not
+     * toggle repeatedly. The vanilla mappings of this mod exist only so the keys show up in the controls
+     * screen; their queued presses are drained, because the decision comes from the held-key set (any key
+     * of a combination may complete it, and a modifier alone cannot be polled through a mapping).</p>
      */
     private void handleHotkeys(Minecraft client) {
-        // Drain click counts so vanilla's keyboard repeats never accumulate, but do not use them to
-        // decide anything: the held-key set is what the decision is based on.
         for (Feature feature : Feature.values()) {
             KeyMapping key = this.featureKeys.get(feature);
 
             while (key != null && key.consumeClick()) {
-                // Clicks are drained so vanilla's keyboard repeats never accumulate. The decision below
-                // uses the held-key set instead, because vanilla only reports the one key a mapping owns.
+                // Drained so vanilla's key repeats never accumulate.
             }
         }
 
         while (this.openConfigKey.consumeClick()) {
-            // Only when the combination actually matches; the mapping owns one key, and a config key that is
-            // part of a longer combination must not open the screen on its own.
-            KeyCombo configCombo = this.config.configKey();
-
-            if (configCombo.matches(
-                    HeldKeys.heldAmong(new LinkedHashSet<>(configCombo.keys()), client))) {
-                client.setScreen(new ConfigScreen(client.screen, this));
-            }
+            // Drained; opening is decided from the complete combination below.
         }
 
-        this.updateFiredFeatures(client);
+        // With a screen open vanilla releases every key, and the player's keys belong to the GUI. Leaving
+        // the router untouched stops a hold from re-firing - and therefore switching itself off - the
+        // moment the screen closes.
+        if (client.screen != null || client.getOverlay() != null) {
+            return;
+        }
+
+        HotkeyRouter.Result result = this.hotkeys.update(this.heldSnapshot(client), this.config);
+
+        for (Feature feature : result.toggles()) {
+            this.toggleFeature(feature);
+        }
+
+        if (result.openConfig()) {
+            client.setScreen(new ConfigScreen(client.screen, this));
+        }
     }
 
     /**
-     * Every key that appears in some binding, plus the config key.
+     * Every key the held-state poll has to look at.
      *
-     * <p>Only these need checking each tick. A key bound to nothing is not tracked by any vanilla mapping,
-     * which is precisely why the held state is polled from the keyboard rather than read from the mappings.</p>
+     * <p>That is the keys of every binding, the config key, the attack and use buttons (a combination may
+     * contain a mouse button), and every modifier. The modifiers matter even when no binding mentions them:
+     * a combination blocks an extra Shift, so Shift has to be sampled or {@code R} would fire while Shift
+     * is held.</p>
      */
     private Set<String> collectCandidateKeys(Minecraft client) {
         Set<String> candidates = new LinkedHashSet<>();
@@ -487,9 +440,8 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             candidates.addAll(this.config.key(feature).keys());
         }
 
-        if (this.openConfigKey != null && !this.openConfigKey.isUnbound()) {
-            candidates.add(this.openConfigKey.saveString());
-        }
+        candidates.addAll(this.config.configKey().keys());
+        candidates.addAll(KeyCombo.modifierKeys());
 
         // The attack and use buttons are always sampled, even when no binding mentions them. A combination
         // is decided from a snapshot taken before suppression, and suppression clears exactly these two
@@ -503,89 +455,12 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     }
 
     /**
-     * Fires each feature whose combination has just become satisfied.
+     * Turns the player's own mouse press into the clicks fast click owes.
      *
-     * <p>Firing is based on the transition from "not satisfied" to "satisfied" for that feature's own
-     * combination, not on the whole set of held keys changing. Watching the whole set was wrong: holding a
-     * movement key changes it constantly, which retriggered the same hotkey over and over and left the
-     * feature toggling on and off while the message appeared each time.</p>
-     *
-     * <p>A longer combination wins over any shorter one it contains, so binding {@code A+C} blocks a plain
-     * {@code C} binding while both keys are down.</p>
-     */
-    private void updateFiredFeatures(Minecraft client) {
-        // With a screen open vanilla releases every key, and the player's keys are going to the GUI, so the
-        // held state is meaningless. Leaving it alone also stops a hold from re-firing - and therefore
-        // switching itself off - the moment the screen closes.
-        if (client.screen != null || client.getOverlay() != null) {
-            return;
-        }
-
-        // The snapshot taken before this tick's suppression, so claiming the attack button cannot make a
-        // combination look released and switch the feature straight back off.
-        Set<String> heldKeys = this.heldSnapshot(client);
-
-        // Collect the combinations that are currently satisfied, longest first.
-        List<Feature> satisfied = new ArrayList<>();
-
-        for (Feature feature : Feature.values()) {
-            if (this.config.key(feature).matches(heldKeys)) {
-                satisfied.add(feature);
-            }
-        }
-
-        satisfied.sort((a, b) -> Integer.compare(
-                this.config.key(b).size(), this.config.key(a).size()));
-
-        for (Feature feature : satisfied) {
-            KeyCombo combo = this.config.key(feature);
-
-            // Skip a binding that is merely part of a longer satisfied one.
-            boolean shadowed = false;
-
-            for (Feature other : satisfied) {
-                if (other != feature && combo.isShadowedBy(this.config.key(other))) {
-                    shadowed = true;
-                    break;
-                }
-            }
-
-            boolean wasSatisfied = this.firedFeatures.contains(feature);
-
-            if (shadowed) {
-                // A longer binding owns this key press; nothing fires for the shorter one, and it is not
-                // marked as fired so it can work again once the longer combination is released.
-                continue;
-            }
-
-            if (!wasSatisfied) {
-                this.firedFeatures.add(feature);
-                this.toggleFeature(feature);
-            }
-        }
-
-        // Forget features whose combination is no longer satisfied, so they can fire again next time.
-        this.firedFeatures.removeIf(feature -> {
-            KeyCombo combo = this.config.key(feature);
-            boolean stillSatisfied = false;
-
-            for (Feature other : satisfied) {
-                if (other == feature || combo.isShadowedBy(this.config.key(other))) {
-                    stillSatisfied = true;
-                    break;
-                }
-            }
-
-            return !stillSatisfied;
-        });
-    }
-
-    /**
-     * Turns the player's own mouse press into extra clicks when fast click is on.
-     *
-     * <p>The physical press is already handled by vanilla, so only the extra clicks are injected. Detecting
-     * the press uses the rising edge of the key's {@code isDown} flag, because that flag is what a real
-     * mouse press sets and what the mod never writes for a click-only feature.</p>
+     * <p>The physical press is already handled by vanilla, so only the repeats are queued. Detecting the
+     * press uses the rising edge of the key's {@code isDown} flag, which is what a real mouse press sets.
+     * A press that the mod itself is trying to suppress (a complete combination) is not the player asking
+     * for extra clicks, and neither is the button the mod is holding for a feature.</p>
      */
     private void pollPlayerClicks(Minecraft client, ActionChannel channel, KeyMapping key) {
         if (key == null) {
@@ -596,15 +471,11 @@ public final class ClientInteractionsClient implements ClientModInitializer {
         boolean wasDown = this.playerKeyHeld[channel.ordinal()];
         this.playerKeyHeld[channel.ordinal()] = down;
 
-        if (!down || wasDown) {
+        if (!down || wasDown || this.input.owns(channel)) {
             return;
         }
 
-        int times = this.engine.playerClickCount(channel);
-
-        if (times > 1) {
-            this.input.playerClick(channel, times);
-        }
+        this.engine.recordPlayerClick(channel);
     }
 
     /** HUD lines for whatever is currently running. */

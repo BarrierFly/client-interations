@@ -21,22 +21,23 @@ import peoplecanfly.clientinteractions.common.ActionChannel;
  *       use keeps eating, drinking or drawing a bow exactly like a physically held mouse button.</li>
  * </ul>
  *
- * <p>The {@code isDown} field is written directly instead of going through {@code KeyMapping#set} because
- * on 1.21.10 and newer the attack and use keys are {@code ToggleKeyMapping}s, whose {@code setDown}
- * flips the state instead of assigning it when the "toggle" accessibility option is enabled.</p>
- *
- * <p>The mod only touches {@code isDown} while it owns the key, i.e. between the first held tick and the
- * release. Click-only modes never write the flag, so a physically held mouse button is never disturbed.</p>
+ * <p>The {@code isDown} field is written directly instead of going through {@code KeyMapping#set}: the
+ * field assigns, while {@code setDown} may flip the state when the "toggle" accessibility option is on
+ * (and the attack/use keys become {@code ToggleKeyMapping}s on later versions).</p>
  *
  * <h2>What happens while a screen is open</h2>
- * <p>The vanilla client stops processing key bindings as soon as a screen (inventory, chat, ...) or an
- * overlay is open, and it raises {@code missTime} to 10000 while a screen is open. Attacks follow that
- * rule exactly, so opening a GUI pauses attack automation just like it pauses a real mouse button.
- * The use channel keeps working while a screen is open, as requested, by pumping {@code startUseItem}
- * itself and honouring the vanilla four tick delay. Timers always keep running.</p>
+ * <p>The vanilla client stops processing key bindings as soon as a screen or an overlay is open, and it
+ * raises {@code missTime} to 10000 while a screen is open. Attacks follow that rule exactly. The use
+ * channel keeps working while a screen is open by pumping {@code startUseItem} itself, because a held use
+ * button is not processed by the vanilla loop in that state either. Timers always keep running.</p>
+ *
+ * <h2>What this class does not do</h2>
+ * <p>It never decides <em>when</em> to click: that is the engine's job. It only turns "N clicks this tick"
+ * into N calls, and "hold" into the vanilla flag. In particular the extra clicks of fast click are paced
+ * by the engine, one per tick, because vanilla swallows a same-tick burst.</p>
  */
 public final class GameInput {
-    /** The value vanilla uses for {@code missTime} while a screen is open. */
+    /** The value vanilla uses to mark "a screen is open". */
     private static final int SCREEN_MISS_TIME = 10000;
 
     private final Minecraft client;
@@ -44,13 +45,13 @@ public final class GameInput {
     /** Whether the mod, rather than the player, is currently holding a channel down. */
     private final boolean[] owned = new boolean[ActionChannel.values().length];
 
+    public GameInput(Minecraft client) {
+        this.client = client;
+    }
+
     /** Whether the mod, rather than the player, is currently holding a channel down. */
     public boolean owns(ActionChannel channel) {
         return this.owned[channel.ordinal()];
-    }
-
-    public GameInput(Minecraft client) {
-        this.client = client;
     }
 
     /**
@@ -100,6 +101,29 @@ public final class GameInput {
     }
 
     /**
+     * Re-writes {@code isDown} while the mod owns a hold.
+     *
+     * <p>Vanilla resets every key's down flag when a screen opens, and toggles it on a mouse re-grab.
+     * Writing it again each tick keeps a long hold working across those events, and is harmless when the
+     * flag is already correct.</p>
+     *
+     * <p>Only done with no screen open: writing the flag while a GUI is up would inject attacks into the
+     * inventory. With a screen open the hold simply resumes once it closes, which is the same behaviour as
+     * a real held mouse button.</p>
+     */
+    private void reassertHold(ActionChannel channel) {
+        if (!this.vanillaInputActive()) {
+            return;
+        }
+
+        KeyMapping mapping = this.channelMapping(channel);
+
+        if (mapping != null && !mapping.isDown()) {
+            this.setKeyDown(channel, true);
+        }
+    }
+
+    /**
      * Vanilla sets {@code missTime} to 10000 while a screen is open and only clears it through
      * {@code continueAttack(false)}, which does not run with a screen open. A forced hold must not inherit
      * that sentinel, so it is dropped here. The normal ten tick missed-swing penalty is far below this
@@ -121,6 +145,7 @@ public final class GameInput {
 
             if (player != null && this.client.rightClickDelay == 0 && !player.isUsingItem()) {
                 this.client.startUseItem();
+                this.injected++;
             }
         }
     }
@@ -138,23 +163,9 @@ public final class GameInput {
             } else {
                 this.client.startUseItem();
             }
+
+            this.injected++;
         }
-
-        this.injected += clicks;
-    }
-
-    /**
-     * Performs one of the player's own clicks {@code times} times, for fast click.
-     *
-     * <p>This is the only entry point fast click uses: the feature multiplies a real click instead of
-     * clicking on a timer, so it does nothing unless the player acts.</p>
-     */
-    public void playerClick(ActionChannel channel, int times) {
-        if (times <= 1) {
-            return;
-        }
-
-        this.click(channel, times - 1);
     }
 
     /** How many clicks the mod has injected, so a test can prove the multiplier really fired. */
@@ -195,34 +206,9 @@ public final class GameInput {
         }
     }
 
-    /**
-     * The vanilla mapping this channel drives.
-     */
+    /** The vanilla mapping this channel drives. */
     private KeyMapping channelMapping(ActionChannel channel) {
         return channel == ActionChannel.ATTACK ? this.client.options.keyAttack : this.client.options.keyUse;
-    }
-
-    /**
-     * Re-writes {@code isDown} while the mod owns a hold.
-     *
-     * <p>Vanilla resets every key's down flag when a screen opens, and toggles it on a mouse re-grab.
-     * Writing it again each tick keeps a long hold working across those events, and is harmless when the
-     * flag is already correct.</p>
-     *
-     * <p>Only done with no screen open: writing the flag while a GUI is up would inject attacks into the
-     * inventory. With a screen open the hold simply resumes once it closes, which is the same behaviour as
-     * a real held mouse button.</p>
-     */
-    private void reassertHold(ActionChannel channel) {
-        if (!this.vanillaInputActive()) {
-            return;
-        }
-
-        KeyMapping mapping = this.channelMapping(channel);
-
-        if (mapping != null && !mapping.isDown()) {
-            this.setKeyDown(channel, true);
-        }
     }
 
     /** Sets or clears the {@code isDown} flag of the vanilla key mapping driven by a channel. */
@@ -233,9 +219,12 @@ public final class GameInput {
             return;
         }
 
-        KeyMapping mapping = channel == ActionChannel.ATTACK
-                ? this.client.options.keyAttack
-                : this.client.options.keyUse;
+        if (down && !this.vanillaInputActive()) {
+            // Never force a button down into an open screen. The hold is re-asserted once it closes.
+            return;
+        }
+
+        KeyMapping mapping = this.channelMapping(channel);
 
         if (mapping != null) {
             mapping.isDown = down;

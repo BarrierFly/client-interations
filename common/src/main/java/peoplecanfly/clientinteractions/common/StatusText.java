@@ -66,8 +66,14 @@ public final class StatusText {
         return "Name toggles - key rebinds - numbers are typed";
     }
 
-    /** The prompt shown while waiting for a key, e.g. {@code Press the key for Attack: Hold}. */
+    /**
+     * The prompt shown while waiting for a key, e.g. {@code Press the key for Attack: Hold}.
+     *
+     * @param feature the feature being rebound, or {@code null} for the config-opening combination
+     */
     public static String keyPrompt(Feature feature) {
-        return "Press the key for " + feature.label();
+        return feature == null
+                ? "Press the keys that open this screen"
+                : "Press the key for " + feature.label();
     }
 }
