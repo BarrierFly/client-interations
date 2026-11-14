@@ -111,8 +111,8 @@ public final class ConfigScreen extends Screen {
     /**
      * The vertical layout, decided once so every part agrees on the same numbers.
      *
-     * <p>The preferred layout is the full one: a title block, the two switch rows and the feature rows at
-     * full height. If the window is shorter the title block goes first, then the gaps tighten, and only as
+     * <p>The preferred layout is the full one: a title block, the three switch rows and the feature rows
+     * at full height. If the window is shorter the title block goes first, then the gaps tighten, and only as
      * a last resort do the widgets shrink - in that order, so the layout never overlaps and never pushes a
      * row under Done. The search picks the first combination that fits, which keeps tall windows on the
      * preferred numbers.</p>
@@ -162,18 +162,22 @@ public final class ConfigScreen extends Screen {
             this.headerTop = header;
             this.rowSpacing = spacing;
             this.widgetHeight = widget;
-            this.rowsTop = header + 2 * spacing + GROUP_GAP;
+            this.rowsTop = header + 3 * spacing + GROUP_GAP;
         }
 
         /** True when the last row still ends above Done at these numbers. */
         private boolean fits(int header, int spacing, int widget) {
-            int bottom = header + 2 * spacing + GROUP_GAP
+            int bottom = header + 3 * spacing + GROUP_GAP
                     + (ROWS_PER_PAGE - 1) * spacing + widget;
             return bottom <= this.doneTop - 2;
         }
 
         int secondHeaderRow() {
             return this.headerTop + this.rowSpacing;
+        }
+
+        int thirdHeaderRow() {
+            return this.headerTop + 2 * this.rowSpacing;
         }
 
         /** True when there is room for the hint above the header. */
@@ -212,27 +216,40 @@ public final class ConfigScreen extends Screen {
 
         y = layout.secondHeaderRow();
 
-        // Three items share this row: Messages, the page switch, and the config-opening key.
-        int third = columns.rowWidth / 3 - 2;
+        int half = columns.rowWidth / 2 - 2;
+        int secondHalf = columns.left + columns.rowWidth / 2 + 2;
 
         this.addRenderableWidget(CycleButton.onOffBuilder(this.mod.config().showMessages())
-                .create(columns.left, y, third, layout.widgetHeight, Component.literal("Messages"),
+                .create(columns.left, y, half, layout.widgetHeight, Component.literal("Messages"),
                         (b, v) -> {
                             this.mod.config().setShowMessages(v);
                             this.mod.saveConfig();
                         }));
 
+        // Whether a running feature keeps acting on the world while a screen is open - chat, the
+        // inventory, a container - instead of the attack channel pausing the way vanilla does. Off by
+        // default, because acting into an open GUI is not what everyone wants.
+        this.addRenderableWidget(CycleButton.onOffBuilder(this.mod.config().continueOnScreen())
+                .create(secondHalf, y, half, layout.widgetHeight, Component.literal("Continue in GUI"),
+                        (b, v) -> {
+                            this.mod.config().setContinueOnScreen(v);
+                            this.mod.saveConfig();
+                        }));
+
+        y = layout.thirdHeaderRow();
+
+        // Two items share this row: the page switch, and the config-opening key.
         this.addRenderableWidget(Button.builder(
-                        Component.literal(this.fit(this.pageSwitchLabel(), third - 8)),
+                        Component.literal(this.fit(this.pageSwitchLabel(), half - 8)),
                         b -> this.switchPage())
-                .bounds(columns.left + third + 3, y, third, layout.widgetHeight)
+                .bounds(columns.left, y, half, layout.widgetHeight)
                 .build());
 
         // The key that opens this screen, editable here so it is not hidden in the vanilla controls list.
         this.addRenderableWidget(Button.builder(
-                        Component.literal(this.fit("Key: " + this.configKeyDisplay(), third - 8)),
+                        Component.literal(this.fit("Key: " + this.configKeyDisplay(), half - 8)),
                         b -> this.openConfigKeyBind())
-                .bounds(columns.left + (third + 3) * 2, y, third, layout.widgetHeight)
+                .bounds(secondHalf, y, half, layout.widgetHeight)
                 .build());
 
         y = layout.rowsTop;

@@ -4,7 +4,7 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * Persisted configuration: one settings block per feature, one hotkey per feature, plus three global
+ * Persisted configuration: one settings block per feature, one hotkey per feature, plus four global
  * switches.
  *
  * <p>Features default to off and unbound, and the feature's on/off state is runtime only - it is not
@@ -16,6 +16,18 @@ public final class ModConfig {
     private boolean enabled = true;
     private boolean hudEnabled = true;
     private boolean showMessages = true;
+
+    /**
+     * Whether a running feature keeps acting on the world while a screen (chat, inventory, a container)
+     * is open.
+     *
+     * <p>Off by default, which keeps the vanilla rule for the attack channel: a screen discards attack
+     * input, so a hold pauses and resumes when the screen closes. The use channel has always kept
+     * working with a screen open and is not affected by this switch. Turning it on makes the mod drive
+     * the attack channel through the screen state as well, which means the crosshair target - a mob,
+     * the block being mined - keeps receiving the actions while the GUI is up.</p>
+     */
+    private boolean continueOnScreen = false;
 
     /** The combination that opens the config screen. */
     private KeyCombo configKey = KeyCombo.unbound();
@@ -67,6 +79,15 @@ public final class ModConfig {
 
     public void setShowMessages(boolean showMessages) {
         this.showMessages = showMessages;
+    }
+
+    /** Whether features keep acting on the world while a screen is open; off keeps the vanilla rule. */
+    public boolean continueOnScreen() {
+        return this.continueOnScreen;
+    }
+
+    public void setContinueOnScreen(boolean continueOnScreen) {
+        this.continueOnScreen = continueOnScreen;
     }
 
     /** The combination that opens the config screen; unbound until the user sets one. */

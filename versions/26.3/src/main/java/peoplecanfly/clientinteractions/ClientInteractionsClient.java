@@ -3,6 +3,7 @@ package peoplecanfly.clientinteractions;
 import com.mojang.blaze3d.platform.InputConstants;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -50,8 +51,18 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     private final Map<Feature, KeyMapping> featureKeys = new EnumMap<>(Feature.class);
     private KeyMapping openConfigKey;
 
-    /** Whether each channel's vanilla button was down on the previous tick, to detect a fresh press. */
-    private final boolean[] playerKeyHeld = new boolean[ActionChannel.values().length];
+    /**
+     * The queued-click counters of the sampled keys, as they were on the previous tick.
+     *
+     * <p>Vanilla's event handlers increment a mapping's counter for every press, so a press that was
+     * released again before the next tick ran still shows up even though the key no longer reads as
+     * down. Comparing against the previous sample turns the counter into "presses made since the last
+     * tick", which is what both the combination match and fast click need.</p>
+     */
+    private final Map<String, Integer> sampledClickCounts = new HashMap<>();
+
+    /** The presses queued since the previous tick, keyed by the vanilla key name; sampled once a tick. */
+    private final Map<String, Integer> newPresses = new HashMap<>();
 
     /** The single arbiter for hotkey priority, firing and key claiming. */
     private final HotkeyRouter hotkeys = new HotkeyRouter();
@@ -183,7 +194,7 @@ public final class ClientInteractionsClient implements ClientModInitializer {
 
         this.configStore = new ConfigStore(FabricLoader.getInstance().getConfigDir());
         this.config = this.configStore.load();
-        this.input = new GameInput(Minecraft.getInstance());
+        this.input = new GameInput(Minecraft.getInstance(), () -> this.config.continueOnScreen());
         this.engine = new AutomationEngine(new EngineHost());
         this.syncEngine();
 
@@ -247,6 +258,11 @@ public final class ClientInteractionsClient implements ClientModInitializer {
      * tick. Keyboard events are polled between ticks rather than during one, so the cleared state cannot be
      * refilled before vanilla reads it.</p>
      *
+     * <p>A press can also be over before this runs: pressed and released between two ticks, so no tick
+     * ever saw the key as down. Its queued click is still in the mapping, and a key with a press queued
+     * since the previous tick counts as held here, which is what makes such a tap complete its
+     * combination - and lets the queued click be drained instead of acting.</p>
+     *
      * <p>Only keys of a <em>complete</em> combination are claimed. Pressing {@code 1} alone when only
      * {@code Shift+1} is bound must still select the hotbar slot, and clicking alone when only
      * {@code Shift+Left Click} is bound must still attack.</p>
@@ -255,11 +271,24 @@ public final class ClientInteractionsClient implements ClientModInitializer {
         this.sampledHeldKeys = null;
 
         if (client.options == null || client.player == null) {
+            this.sampledClickCounts.clear();
+            this.newPresses.clear();
             return;
         }
 
-        // While a screen is open the keys belong to the GUI.
+        Map<String, KeyMapping> mappings = new HashMap<>();
+
+        for (KeyMapping mapping : client.options.keyMappings) {
+            mappings.put(mapping.saveString(), mapping);
+        }
+
+        Set<String> candidates = this.collectCandidateKeys(client);
+
+        // While a screen is open the keys belong to the GUI: nothing is claimed and no press is
+        // attributed to the game. The counters are still remembered, so presses made inside the GUI -
+        // which never reach these mappings - cannot look like game presses once the screen closes.
         if (client.gui.screen() != null || client.gui.overlay() != null) {
+            this.sampleClickCounts(mappings, candidates);
             return;
         }
 
@@ -267,11 +296,20 @@ public final class ClientInteractionsClient implements ClientModInitializer {
         // this snapshot, which is what allows the buttons to be cleared below without the combination
         // appearing to be released - the combination is decided from the state as it was, not as it is
         // after suppression.
-        Set<String> held = HeldKeys.heldAmong(this.collectCandidateKeys(client), client,
-                this.modHeldKeyNames(client));
+        Set<String> held = HeldKeys.heldAmong(candidates, client, this.modHeldKeyNames(client));
+        this.sampleClickCounts(mappings, candidates);
+
+        // A press that was released again before this tick ran no longer reads as down, but its queued
+        // click is still in the mapping, so it counts as held here: the combination it completes fires,
+        // and the queued click is drained below instead of reaching vanilla.
+        held.addAll(this.newPresses.keySet());
         this.sampledHeldKeys = held;
 
         Set<String> claimed = HotkeyRouter.claimedKeys(held, this.config);
+
+        // The player's own presses, before the drain: a press the combination claims belongs to the
+        // hotkey and must not also multiply, every other press goes to fast click.
+        this.recordPlayerClicks(client, claimed);
 
         if (claimed.isEmpty()) {
             return;
@@ -287,6 +325,10 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             while (mapping.consumeClick()) {
                 // Drain the press vanilla queued for this key.
             }
+
+            // The drain emptied the counter, so the memory follows it: otherwise a new press arriving
+            // before the next tick would be counted against the drained one and missed.
+            this.sampledClickCounts.put(mapping.saveString(), mapping.clickCount);
 
             // Attack and use also keep acting for as long as their flag is set - {@code continueAttack}
             // reads it every tick - so a combination containing the left button would keep fighting. The
@@ -371,17 +413,12 @@ public final class ClientInteractionsClient implements ClientModInitializer {
         if (client.player == null || client.level == null) {
             this.engine.stopAll();
             this.hotkeys.reset();
-            this.playerKeyHeld[ActionChannel.ATTACK.ordinal()] = false;
-            this.playerKeyHeld[ActionChannel.USE.ordinal()] = false;
             return;
         }
 
         // Hotkeys first, so a combination pressed this tick takes effect on this tick's automation. The
         // decision uses the state sampled before vanilla decided what a bound key may also do.
         this.handleHotkeys(client);
-
-        this.pollPlayerClicks(client, ActionChannel.ATTACK, client.options.keyAttack);
-        this.pollPlayerClicks(client, ActionChannel.USE, client.options.keyUse);
 
         this.engine.tick();
     }
@@ -455,27 +492,62 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     }
 
     /**
-     * Turns the player's own mouse press into the clicks fast click owes.
+     * Remembers the queued-click counters of the sampled keys and notes the presses made since the
+     * previous tick.
      *
-     * <p>The physical press is already handled by vanilla, so only the repeats are queued. Detecting the
-     * press uses the rising edge of the key's {@code isDown} flag, which is what a real mouse press sets.
-     * A press that the mod itself is trying to suppress (a complete combination) is not the player asking
-     * for extra clicks, and neither is the button the mod is holding for a feature.</p>
+     * <p>The event handlers increment a mapping's counter for every press and vanilla's key-binding pass
+     * drains it within the tick, so the counter is nonzero exactly between a press and vanilla acting on
+     * it. That window is what the instantaneous {@code isDown} flag misses for a press released before
+     * this tick ran.</p>
      */
-    private void pollPlayerClicks(Minecraft client, ActionChannel channel, KeyMapping key) {
-        if (key == null) {
+    private void sampleClickCounts(Map<String, KeyMapping> mappings, Set<String> candidates) {
+        this.newPresses.clear();
+
+        for (String name : candidates) {
+            KeyMapping mapping = mappings.get(name);
+
+            if (mapping == null) {
+                continue;
+            }
+
+            int current = mapping.clickCount;
+            int previous = this.sampledClickCounts.getOrDefault(name, current);
+
+            if (current > previous) {
+                this.newPresses.put(name, current - previous);
+            }
+
+            this.sampledClickCounts.put(name, current);
+        }
+    }
+
+    /**
+     * Turns the player's own presses into the clicks fast click owes.
+     *
+     * <p>The physical press is already handled by vanilla, so only the repeats are queued. Detection
+     * uses the presses sampled this tick, which the event handlers counted for every physical press:
+     * a press released again before this tick ran is still counted, and so is a second press made
+     * within the same tick. A press the mod itself is suppressing (a complete combination) is not the
+     * player asking for extra clicks, and neither is the button the mod is holding for a feature.</p>
+     */
+    private void recordPlayerClicks(Minecraft client, Set<String> claimed) {
+        this.recordPlayerClick(client, claimed, client.options.keyAttack, ActionChannel.ATTACK);
+        this.recordPlayerClick(client, claimed, client.options.keyUse, ActionChannel.USE);
+    }
+
+    private void recordPlayerClick(Minecraft client, Set<String> claimed, KeyMapping mapping,
+                                   ActionChannel channel) {
+        if (mapping == null
+                || claimed.contains(mapping.saveString())
+                || this.input.owns(channel)) {
             return;
         }
 
-        boolean down = key.isDown();
-        boolean wasDown = this.playerKeyHeld[channel.ordinal()];
-        this.playerKeyHeld[channel.ordinal()] = down;
+        int presses = this.newPresses.getOrDefault(mapping.saveString(), 0);
 
-        if (!down || wasDown || this.input.owns(channel)) {
-            return;
+        for (int i = 0; i < presses; i++) {
+            this.engine.recordPlayerClick(channel);
         }
-
-        this.engine.recordPlayerClick(channel);
     }
 
     /** HUD lines for whatever is currently running. */

@@ -39,19 +39,21 @@ public final class AutomationEngine {
      *
      * <p>Fast click turns one of the player's clicks into {@code count} clicks. The player's own press is
      * already handled by vanilla, so only the remaining {@code count - 1} have to be injected, and they
-     * are emitted one per tick. Emitting them all in the same tick does not produce that many clicks:
-     * vanilla raises its missed-swing timer, resets the attack strength and throttles item use, so a
-     * same-tick burst collapses into a single action. This is the same reason periodic clicks are spread
-     * over consecutive ticks.</p>
+     * are emitted one per tick - the same rate a player produces separate clicks at. One client tick has
+     * one crosshair target and one input pass, so several repeats in the same tick cannot act as several
+     * separate clicks: on the use channel a second call in the same tick would place a second block or
+     * restart the same use, and on the attack channel it would swing into an attack cooldown that has
+     * just been reset. Spreading the repeats keeps each one a click of its own.</p>
      */
     private final Map<ActionChannel, Integer> pendingPlayerClicks = new EnumMap<>(ActionChannel.class);
 
     /**
      * Channels where the player clicked on this tick.
      *
-     * <p>The first extra click must not land on the same tick as the physical one: vanilla has just
-     * processed that press, so a second {@code startAttack} in the same tick would be swallowed. The
-     * emission therefore starts on the following tick.</p>
+     * <p>The repeats start on the tick after the player's press, not on the same one: vanilla has just
+     * processed that press, and a repeat on the same tick would not be a separate click - it would land
+     * on the same crosshair target with the attack cooldown the press just reset, or restart a use that
+     * is already running. The next tick is the first one that can carry a click of its own.</p>
      */
     private final java.util.Set<ActionChannel> clickedThisTick =
             java.util.EnumSet.noneOf(ActionChannel.class);
@@ -177,8 +179,8 @@ public final class AutomationEngine {
      * Advances every active feature by exactly one client tick.
      *
      * <p>Fast click is the odd one out: it has no timer of its own, but the extra clicks it owes the
-     * player are emitted here, one per tick, so they become real separate clicks instead of being
-     * swallowed by vanilla. See {@link #recordPlayerClick(ActionChannel)}.</p>
+     * player are emitted here, one per tick, so each repeat is a separate click rather than a same-tick
+     * repeat. See {@link #recordPlayerClick(ActionChannel)}.</p>
      */
     public void tick() {
         for (Feature feature : Feature.values()) {
@@ -241,7 +243,8 @@ public final class AutomationEngine {
         }
 
         if (this.clickedThisTick.contains(channel)) {
-            // The player's own press is being processed this tick; the repeats start next tick.
+            // The player's own press landed on this tick; vanilla has just processed it, so the repeats
+            // start on the next tick - the next tick that can carry a separate click of its own.
             return false;
         }
 

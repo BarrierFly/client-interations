@@ -116,8 +116,9 @@ class FeatureSchedulerTest {
     @Test
     @DisplayName("periodic click spreads its clicks over consecutive ticks")
     void periodicClickSpreadsClicks() {
-        // Three clicks every six ticks must be three separate ticks, not three calls in one tick: vanilla
-        // resets the attack strength on the first click, so a same-tick burst would be swallowed.
+        // Three clicks every six ticks must be three separate ticks, not three calls in one tick: one
+        // tick has one crosshair target and one input pass, so a same-tick burst cannot act as several
+        // separate clicks.
         assertEquals("FFF...FFF...",
                 pattern(run(newActive(), Feature.ATTACK_PERIODIC_CLICK, settings(6, 1, 3), 12)));
     }

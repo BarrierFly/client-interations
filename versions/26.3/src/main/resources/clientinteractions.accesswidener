@@ -10,11 +10,20 @@ accessWidener	v2	official
 #    screen is open (the vanilla loop skips input handling in that state).
 #  * Minecraft#missTime: read and cleared only to drop the 10000 tick sentinel that vanilla sets
 #    while a screen is open, so a forced hold does not stay inert for 500 seconds afterwards.
+#  * Minecraft#continueAttack(true): the loop the vanilla client runs per tick while the attack button
+#    is held, which continues destroying the targeted block. The mod pumps it for a forced attack hold
+#    while a screen is open, the state in which the vanilla loop does not run.
 #  * KeyMapping#isDown: written directly for holds. KeyMapping#set cannot be used because on 1.21.10+
 #    the attack/use keys are ToggleKeyMapping, whose setDown toggles instead of assigning.
+#  * KeyMapping#clickCount: read only, to detect the player's own presses. The counter is incremented by
+#    the mouse and keyboard event handlers for every press, so a press that was released again before the
+#    next tick ran is still visible - reading only the isDown flag would miss it, and a missed press would
+#    leak its vanilla action past a claimed combination.
 
 accessible	method	net/minecraft/client/Minecraft	startAttack	()Z
 accessible	method	net/minecraft/client/Minecraft	startUseItem	()V
 accessible	field	net/minecraft/client/Minecraft	rightClickDelay	I
 accessible	field	net/minecraft/client/Minecraft	missTime	I
+accessible	method	net/minecraft/client/Minecraft	continueAttack	(Z)V
+accessible	field	net/minecraft/client/KeyMapping	clickCount	I
 accessible	field	net/minecraft/client/KeyMapping	isDown	Z

@@ -83,9 +83,10 @@ public final class FeatureScheduler {
             case PERIODIC_CLICK: {
                 int interval = settings.interval();
 
-                // The clicks are spread one per tick so each one is a real, separate attack. Firing them
-                // all in a single tick would not work: vanilla resets the attack strength on the first
-                // click, so the rest of the burst would be swallowed.
+                // The clicks are spread one per tick, the rate a player produces separate clicks at. One
+                // tick has one crosshair target and one input pass, so a same-tick burst cannot act as
+                // several separate clicks: the use channel would place or restart the same use twice, and
+                // the attack channel would swing into an attack cooldown the first click just reset.
                 int count = Math.min(settings.count(), interval);
 
                 return this.elapsed % interval < count

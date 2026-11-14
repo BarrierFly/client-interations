@@ -53,6 +53,7 @@ public final class ConfigStore {
             config.setEnabled(getBoolean(root, "enabled", config.isEnabled()));
             config.setHudEnabled(getBoolean(root, "hud", config.isHudEnabled()));
             config.setShowMessages(getBoolean(root, "messages", config.showMessages()));
+            config.setContinueOnScreen(getBoolean(root, "continueOnScreen", config.continueOnScreen()));
 
             // The config-opening key lives at the root, not inside a feature block.
             if (root.has("configKey") && root.get("configKey").isJsonObject()) {
@@ -130,6 +131,7 @@ public final class ConfigStore {
         root.addProperty("enabled", config.isEnabled());
         root.addProperty("hud", config.isHudEnabled());
         root.addProperty("messages", config.showMessages());
+        root.addProperty("continueOnScreen", config.continueOnScreen());
 
         if (config.configKey().isBound()) {
             JsonObject configKeyNode = new JsonObject();

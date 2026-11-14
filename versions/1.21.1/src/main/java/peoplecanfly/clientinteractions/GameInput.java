@@ -1,5 +1,6 @@
 package peoplecanfly.clientinteractions;
 
+import java.util.function.BooleanSupplier;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -27,14 +28,17 @@ import peoplecanfly.clientinteractions.common.ActionChannel;
  *
  * <h2>What happens while a screen is open</h2>
  * <p>The vanilla client stops processing key bindings as soon as a screen or an overlay is open, and it
- * raises {@code missTime} to 10000 while a screen is open. Attacks follow that rule exactly. The use
- * channel keeps working while a screen is open by pumping {@code startUseItem} itself, because a held use
- * button is not processed by the vanilla loop in that state either. Timers always keep running.</p>
+ * raises {@code missTime} to 10000 while a screen is open. Attacks follow that rule by default: clicks
+ * are dropped and a hold resumes when the screen closes. With the continue-on-screen option on, the
+ * attack channel keeps acting instead: clicks run after dropping the sentinel, and a hold pumps
+ * {@code continueAttack(true)} - the loop vanilla skips in that state. The use channel keeps working
+ * with a screen open either way, by pumping {@code startUseItem} itself, because a held use button is
+ * not processed by the vanilla loop in that state either. Timers always keep running.</p>
  *
  * <h2>What this class does not do</h2>
  * <p>It never decides <em>when</em> to click: that is the engine's job. It only turns "N clicks this tick"
  * into N calls, and "hold" into the vanilla flag. In particular the extra clicks of fast click are paced
- * by the engine, one per tick, because vanilla swallows a same-tick burst.</p>
+ * by the engine, one per tick, the rate a player produces separate clicks at.</p>
  */
 public final class GameInput {
     /** The value vanilla uses to mark "a screen is open". */
@@ -42,11 +46,18 @@ public final class GameInput {
 
     private final Minecraft client;
 
+    /**
+     * Whether a running feature should keep acting on the world while a screen is open. Read live from
+     * the config, so a change takes effect on the next tick without any syncing.
+     */
+    private final BooleanSupplier continueOnScreen;
+
     /** Whether the mod, rather than the player, is currently holding a channel down. */
     private final boolean[] owned = new boolean[ActionChannel.values().length];
 
-    public GameInput(Minecraft client) {
+    public GameInput(Minecraft client, BooleanSupplier continueOnScreen) {
         this.client = client;
+        this.continueOnScreen = continueOnScreen;
     }
 
     /** Whether the mod, rather than the player, is currently holding a channel down. */
@@ -135,6 +146,15 @@ public final class GameInput {
                 this.client.missTime = 0;
             }
 
+            // With the option on, a held attack keeps acting while a screen is open: this pumps
+            // continueAttack(true), the loop the vanilla client runs per tick for a held attack button
+            // and skips in that state. It continues destroying the block under the crosshair, stops
+            // destroying when the crosshair moves off, and honours the "missed swing" timer and item
+            // use itself.
+            if (this.continueOnScreen.getAsBoolean() && !this.vanillaInputActive()) {
+                this.client.continueAttack(true);
+            }
+
             return;
         }
 
@@ -151,10 +171,19 @@ public final class GameInput {
     }
 
     private void click(ActionChannel channel, int clicks) {
-        // A click is an explicit action. Attack follows vanilla and is dropped while a screen is open;
-        // use is deliberately allowed to keep working, as configured by the user.
+        // Attack follows the vanilla rule and is dropped while a screen is open, unless the option
+        // says otherwise; use is deliberately allowed to keep working, as configured by the user.
         if (channel == ActionChannel.ATTACK && !this.vanillaInputActive()) {
-            return;
+            if (!this.continueOnScreen.getAsBoolean()) {
+                return;
+            }
+
+            // Vanilla marks a screen by raising missTime to the 10000 sentinel, and startAttack refuses
+            // while it is set. Drop the sentinel so the requested click can act; the normal ten tick
+            // "missed swing" penalty is far below the sentinel and is left untouched.
+            if (this.client.missTime >= SCREEN_MISS_TIME) {
+                this.client.missTime = 0;
+            }
         }
 
         for (int i = 0; i < clicks; i++) {

@@ -72,10 +72,12 @@ public final class ClientGameTest implements FabricClientGameTest {
             testExtraModifierBlocks(context);
             testLongerCombinationBlocksShorter(context);
             testBoundKeyDoesNotReachVanilla(context);
+            testTapCompletesCombination(context);
             testMouseCombinationDoesNotAttack(context);
             testMasterSwitchRefusesToggles(context);
             testHoldProducesASwing(context);
             testHoldSurvivesScreen(context);
+            testAttackContinuesOnScreen(context);
             testNoDefaultHotkeys(context);
 
             LOGGER.info("All in-game checks passed");
@@ -640,20 +642,20 @@ public final class ClientGameTest implements FabricClientGameTest {
     }
 
     /**
-     * Presses and releases vanilla's attack button the way a real mouse does.
+     * Delivers one attack press through vanilla's own event-handler path, released again inside the same
+     * tick window, the way a quick physical click arrives.
      *
-     * <p>Writing the key state is what vanilla's own mouse handler does on a press, so this drives the
-     * same detection the mod uses, without depending on whether the test harness can deliver mouse
-     * events to a grabbed window.</p>
+     * <p>The mouse handler is what increments the queued-click counter the mod's press detection samples
+     * and what vanilla consumes to attack, so pressing through it is the path a real press takes. Setting
+     * only the {@code isDown} flag would bypass all of that and prove nothing about the real input path.</p>
      */
     private void pressAttackKey(ClientGameTestContext context, boolean attack) {
         compute(context, () -> {
-            client().options.keyAttack.setDown(true);
-            return null;
-        });
-        context.waitTicks(2);
-        compute(context, () -> {
-            client().options.keyAttack.setDown(false);
+            com.mojang.blaze3d.platform.InputConstants.Key left = com.mojang.blaze3d.platform.InputConstants
+                    .getKey(client().options.keyAttack.saveString());
+            net.minecraft.client.KeyMapping.set(left, true);
+            net.minecraft.client.KeyMapping.click(left);
+            net.minecraft.client.KeyMapping.set(left, false);
             return null;
         });
         context.waitTicks(2);
@@ -918,6 +920,57 @@ public final class ClientGameTest implements FabricClientGameTest {
         context.waitTicks(2);
     }
 
+    /**
+     * With the continue-on-screen option on, the attack channel keeps acting while a screen is open.
+     *
+     * <p>Vanilla discards attack input while a screen is open and marks the state with the 10000 tick
+     * {@code missTime} sentinel, which {@code startAttack} refuses through. The mod drops that sentinel
+     * and drives the same entry points itself. Two witnesses: the injected clicks keep growing with the
+     * inventory open, and a held attack keeps swinging on the block under the crosshair - the swing only
+     * happens through the destroy loop the vanilla tick skips in that state, so a swing proves the mod
+     * really continued it.</p>
+     */
+    private void testAttackContinuesOnScreen(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setContinueOnScreen(true);
+            mod().config().setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(1, 1, 1));
+            mod().syncEngine();
+            mod().engine().activate(Feature.ATTACK_PERIODIC_CLICK);
+            mod().input().resetInjectedClicks();
+            return null;
+        });
+        context.waitTicks(2);
+
+        context.setScreen(() -> new InventoryScreen(Minecraft.getInstance().player));
+        context.waitTicks(5);
+
+        require(compute(context, () -> mod().input().injectedClicks() > 0),
+                "screen work: attack clicks keep firing while the inventory is open");
+
+        // A held attack keeps acting: aiming straight down, the destroy loop the mod pumps swings the
+        // arm every tick, which nothing else does while a screen is open.
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().engine().activate(Feature.ATTACK_HOLD);
+            client().player.setXRot(90.0F);
+            return null;
+        });
+        context.waitTicks(6);
+
+        require(compute(context, () -> client().player.swinging),
+                "screen work: a held attack keeps acting on the block under the crosshair");
+
+        compute(context, () -> {
+            client().player.setXRot(0.0F);
+            mod().engine().stopAll();
+            mod().config().setContinueOnScreen(false);
+            return null;
+        });
+        context.setScreen(() -> null);
+        context.waitTicks(2);
+    }
+
     /** The config screen must not ship with a global hotkey of its own. */
     private void testNoDefaultHotkeys(ClientGameTestContext context) {
         // The old ] default is cleared on the first client tick, so let a few pass first.
@@ -1074,6 +1127,59 @@ public final class ClientGameTest implements FabricClientGameTest {
             return null;
         });
         context.waitTicks(3);
+    }
+
+    /**
+     * A press that is released again before the next tick must still complete its combination.
+     *
+     * <p>This is the case a tick-start sample cannot see through the {@code isDown} flag: no tick ever
+     * observes the key as down, but the mapping still carries the queued click. The combination must
+     * fire from it, and the queued click must be drained so the vanilla action - the hotbar slot switch
+     * - does not happen anyway.</p>
+     */
+    private void testTapCompletesCombination(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_PERIODIC_CLICK,
+                    combo("key.keyboard.left.shift", "key.keyboard.1"));
+            mod().applyKeyBinding(Feature.ATTACK_PERIODIC_CLICK);
+            client().player.getInventory().setSelectedSlot(4);
+            return null;
+        });
+        context.waitTicks(2);
+
+        context.getInput().holdShift();
+        context.waitTicks(2);
+
+        // The tap: press and release inside one tick window, so no tick sees the key as down. The queued
+        // click is what vanilla would act on.
+        compute(context, () -> {
+            com.mojang.blaze3d.platform.InputConstants.Key one =
+                    com.mojang.blaze3d.platform.InputConstants.getKey("key.keyboard.1");
+            net.minecraft.client.KeyMapping.set(one, true);
+            net.minecraft.client.KeyMapping.click(one);
+            net.minecraft.client.KeyMapping.set(one, false);
+            return null;
+        });
+        context.waitTicks(3);
+
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_PERIODIC_CLICK)),
+                "tap: the combination completes from the queued press");
+        require(compute(context, () -> client().player.getInventory().getSelectedSlot() == 4),
+                "tap: the queued press is drained and does not switch the hotbar slot");
+
+        context.getInput().releaseShift();
+        context.waitTicks(2);
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.ATTACK_PERIODIC_CLICK,
+                    peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().applyKeyBinding(Feature.ATTACK_PERIODIC_CLICK);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(2);
     }
 
     /**
