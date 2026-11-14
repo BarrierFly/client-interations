@@ -162,9 +162,12 @@ on its own - the mod cannot know `Shift` was coming.
 The same applies to the mouse buttons. With `Shift+Left Click` bound, pressing that combination switches
 the feature and does **not** also punch; a plain left click still attacks.
 
-Movement, sneak and sprint are never touched, so a combination containing W or Shift still walks and
-crouches normally. The attack and use buttons are also left alone while the mod is driving them itself,
-which is what lets a feature bound to `Shift+Left Click` keep holding the button after it is switched on.
+Every key of the combination loses its ordinary job for as long as the combination is held -
+movement, sneak and sprint included: `Shift+W` stops walking while it is held, and walks again the
+moment it breaks. Keys used on their own keep working: `W` alone still walks, `Shift` alone still
+sneaks, `1` alone still selects the slot. The attack and use buttons are only left standing while the
+mod is driving them itself, which is what lets a feature bound to `Shift+Left Click` keep holding the
+button after it is switched on.
 
 A rebind takes effect immediately, without restarting the game.
 
@@ -236,8 +239,9 @@ classpath regardless of the declaration.
   bound key no longer performs its ordinary game action while the key alone still does, that a mouse-button
   combination does not also attack, that a hotkey is refused while the master switch is off, that a forced hold swings the arm like a real press, that a hold
   resumes after a screen closes, that a press released before the next tick still completes its
-  combination without the queued click reaching vanilla, that attack clicks and a held attack keep
-  acting with the inventory open while the continue-on-screen option is on, that a rebind fires without
+  combination without the queued click reaching vanilla, that a movement key bound into a combination
+  stops walking while it is held and walks again once it breaks, that attack clicks and a held attack
+  keep acting with the inventory open while the continue-on-screen option is on, that a rebind fires without
   a restart, that a mouse button binds too, that
   a typed number reaches the engine and is clamped, that fast click injects the extra clicks for a real
   press and stops after them, and that both screens draw visible text with no widget overlapping another or
@@ -423,9 +427,10 @@ if something is missing.
 鼠标键同理：绑定 `Shift+左键` 时，按下这个组合会切换功能，**不会**顺带打出一拳；单独按左键仍然
 正常攻击。
 
-移动、潜行、疾跑这些键从不拦截，所以包含 W 或 Shift 的组合仍然能正常行走和潜行。当模组自己在
-驱动攻击键或使用键时，也不会去清它们的状态——正因如此，绑定到 `Shift+左键` 的功能开启后才能继续
-按住按钮。
+组合包含的每个键在按住期间都停止本职——移动、潜行、疾跑也不例外：`Shift+W` 按住期间不再前进，
+组合断开后立即恢复行走。单独使用时一切照旧：单独 `W` 仍然行走，单独 `Shift` 仍然潜行，单独 `1`
+仍然选择快捷栏。当模组自己在驱动攻击键或使用键时，不会去清它们的状态——正因如此，绑定到
+`Shift+左键` 的功能开启后才能继续按住按钮。
 
 改键无需重启即刻生效。
 
@@ -488,7 +493,8 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 * 1.21.10、1.21.11、26.3 有游戏内测试：启动真实客户端、创建世界，断言长按、点击、每刻一步的
   计时、互斥、总开关、界面行为、组合键匹配、多键组合被完整捕获、按下后不会自我抵消、
   多余的修饰键会屏蔽普通绑定、
-  长组合会屏蔽包含的短绑定、绑定的组合键不再触发原版动作而单键仍可单独使用、含鼠标键的组合
+  长组合会屏蔽包含的短绑定、绑定的组合键不再触发原版动作而单键仍可单独使用、组合中的移动键
+  在按住期间停止前进且组合断开后恢复、含鼠标键的组合
   不会顺带攻击、总开关关闭时
   快捷键会被拒绝、长按会像真实按下一样挥动手臂、界面关闭后长按会恢复、在下一刻前松开的短按仍能
   完成组合且其队列点击不会漏给原版、界面内继续操作开启时攻击点击与长按在背包打开期间持续生效、

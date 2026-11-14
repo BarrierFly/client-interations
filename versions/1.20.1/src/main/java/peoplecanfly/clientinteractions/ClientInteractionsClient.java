@@ -64,6 +64,9 @@ public final class ClientInteractionsClient implements ClientModInitializer {
     /** The presses queued since the previous tick, keyed by the vanilla key name; sampled once a tick. */
     private final Map<String, Integer> newPresses = new HashMap<>();
 
+    /** The keys neutralized on the previous tick, so a broken combination can hand the keys back. */
+    private Set<String> claimedLastTick = Set.of();
+
     /** The single arbiter for hotkey priority, firing and key claiming. */
     private final HotkeyRouter hotkeys = new HotkeyRouter();
 
@@ -311,12 +314,18 @@ public final class ClientInteractionsClient implements ClientModInitializer {
         // hotkey and must not also multiply, every other press goes to fast click.
         this.recordPlayerClicks(client, claimed);
 
-        if (claimed.isEmpty()) {
-            return;
-        }
-
         for (KeyMapping mapping : client.options.keyMappings) {
-            if (!claimed.contains(mapping.saveString()) || this.ownsMapping(mapping)) {
+            boolean claimedHere = claimed.contains(mapping.saveString()) && !this.ownsMapping(mapping);
+
+            if (!claimedHere) {
+                // A key whose combination broke while the key is still physically held had its flag
+                // cleared for the combination; the flag comes back from the device state, so releasing
+                // the modifier does not leave W dead until it is re-pressed.
+                if (this.claimedLastTick.contains(mapping.saveString())
+                        && HeldKeys.isHeld(mapping.saveString(), client, this.modHeldKeyNames(client))) {
+                    mapping.isDown = true;
+                }
+
                 continue;
             }
 
@@ -330,17 +339,19 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             // before the next tick would be counted against the drained one and missed.
             this.sampledClickCounts.put(mapping.saveString(), mapping.clickCount);
 
-            // Attack and use also keep acting for as long as their flag is set - {@code continueAttack}
-            // reads it every tick - so a combination containing the left button would keep fighting. The
-            // flag is cleared only while the mod is not driving that channel itself, so a feature bound to
-            // {@code Shift+Left Click} can still hold the button, which is why it was bound there.
-            //
-            // Movement, sneak and sprint are never touched: those are continuous states the player owns.
-            if (this.isChannelMapping(mapping, client)
-                    && !this.input.owns(this.channelOf(mapping, client))) {
+            // Every claimed key loses its vanilla job for as long as the combination is held - movement,
+            // sneak and sprint included, because they were bound into the combination on purpose. The
+            // flag is cleared each tick (vanilla re-sets it on key repeats) and restored from the device
+            // state once the combination breaks. The attack and use buttons are only left standing while
+            // the mod is driving that channel itself, which is what lets a feature bound to
+            // {@code Shift+Left Click} keep holding the button after it is switched on.
+            if (!this.isChannelMapping(mapping, client)
+                    || !this.input.owns(this.channelOf(mapping, client))) {
                 mapping.isDown = false;
             }
         }
+
+        this.claimedLastTick = Set.copyOf(claimed);
     }
 
     /** True for the vanilla attack or use button, which vanilla acts on while it is held. */

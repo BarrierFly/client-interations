@@ -30,6 +30,7 @@ public final class ClientGameTest implements FabricClientGameTest {
     private static final int MODIFIER_MASK_ALT = 0x0004;
 
     /** GLFW key codes used by the tests. */
+    private static final int KEY_W = com.mojang.blaze3d.platform.InputConstants.KEY_W;
     private static final int KEY_K = com.mojang.blaze3d.platform.InputConstants.KEY_K;
     private static final int MODIFIER_KEY_CONTROL = com.mojang.blaze3d.platform.InputConstants.KEY_LCONTROL;
     private static final int MODIFIER_KEY_SHIFT = com.mojang.blaze3d.platform.InputConstants.KEY_LSHIFT;
@@ -73,6 +74,7 @@ public final class ClientGameTest implements FabricClientGameTest {
             testLongerCombinationBlocksShorter(context);
             testBoundKeyDoesNotReachVanilla(context);
             testTapCompletesCombination(context);
+            testMovementKeyClaimed(context);
             testMouseCombinationDoesNotAttack(context);
             testMasterSwitchRefusesToggles(context);
             testHoldProducesASwing(context);
@@ -1178,6 +1180,53 @@ public final class ClientGameTest implements FabricClientGameTest {
             mod().config().setKey(Feature.ATTACK_PERIODIC_CLICK,
                     peoplecanfly.clientinteractions.common.KeyCombo.unbound());
             mod().applyKeyBinding(Feature.ATTACK_PERIODIC_CLICK);
+            mod().saveConfig();
+            return null;
+        });
+        context.waitTicks(2);
+    }
+
+    /**
+     * A movement key that takes part in a combination loses its vanilla job while the combination is
+     * held, and comes back the moment the combination breaks.
+     *
+     * <p>W alone always walks; Shift+W bound to a feature walks on neither side - the walking is part
+     * of the combination on purpose. The witness is vanilla's own key flag, which the movement input
+     * reads every tick, and the restore path is what keeps a released modifier from leaving W dead.</p>
+     */
+    private void testMovementKeyClaimed(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.USE_HOLD, combo("key.keyboard.left.shift", "key.keyboard.w"));
+            mod().applyKeyBinding(Feature.USE_HOLD);
+            return null;
+        });
+        context.waitTicks(2);
+
+        context.getInput().holdKey(MODIFIER_KEY_SHIFT);
+        context.waitTicks(1);
+        context.getInput().holdKey(KEY_W);
+        context.waitTicks(3);
+
+        require(compute(context, () -> mod().engine().isActive(Feature.USE_HOLD)),
+                "movement claim: the combination fires");
+        require(compute(context, () -> !client().options.keyUp.isDown()),
+                "movement claim: W does not walk while Shift+W is held");
+
+        context.getInput().releaseKey(MODIFIER_KEY_SHIFT);
+        context.waitTicks(3);
+
+        require(compute(context, () -> client().options.keyUp.isDown()),
+                "movement claim: W walks again once the combination breaks");
+
+        context.getInput().releaseKey(KEY_W);
+        context.waitTicks(2);
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setKey(Feature.USE_HOLD,
+                    peoplecanfly.clientinteractions.common.KeyCombo.unbound());
+            mod().applyKeyBinding(Feature.USE_HOLD);
             mod().saveConfig();
             return null;
         });
