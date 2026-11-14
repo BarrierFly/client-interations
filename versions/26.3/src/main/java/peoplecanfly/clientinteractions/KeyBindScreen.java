@@ -21,14 +21,17 @@ import peoplecanfly.clientinteractions.common.StatusText;
  * {@code Ctrl+Shift+Alt+R} exactly as pressed. Any key may take part - an ordinary letter, a modifier, or a
  * mouse button - because the combination is a set of keys held together, not a key plus modifier flags.</p>
  *
- * <p>A press does not end the capture. The player keeps adding keys and presses <b>Done</b> to accept the
- * combination, or <b>Cancel</b> to discard it. That is what makes combinations of ordinary keys possible:
- * with an automatic commit, the first letter would always end the capture.</p>
+ * <p>The capture starts empty and <b>replaces</b> the saved binding: Done stores exactly what was pressed,
+ * so a new combination is typed out whole instead of extending the old one. A press does not end the
+ * capture; the player keeps adding keys and presses <b>Done</b> to accept the combination, or
+ * <b>Cancel</b> to discard it and leave the saved binding alone. That is what makes combinations of
+ * ordinary keys possible: with an automatic commit, the first letter would always end the capture.</p>
  *
  * <h2>Keys the screen itself needs</h2>
- * <p>Escape and Enter cannot be captured: they are the screen's own cancel and confirm keys. Escape always
- * means "leave without saving", never "clear" - Clear has its own button, and silently deleting the binding
- * on cancel would be surprising.</p>
+ * <p>Escape and Enter cannot be captured: they are the screen's own clear and confirm keys. Escape looks
+ * at the capture: while keys are captured it empties the list so the next press starts a fresh
+ * combination, and with nothing captured it confirms, storing the empty combination - Cancel is the way
+ * to leave without saving.</p>
  *
  * <h2>Colours</h2>
  * <p>Every text colour carries an explicit alpha of {@code FF}. Vanilla skips drawing text whose colour has
@@ -57,8 +60,8 @@ public final class KeyBindScreen extends Screen {
         this.mod = mod;
         this.feature = feature;
 
-        // Start from whatever is bound now, so a combination can be extended rather than retyped.
-        this.captured.addAll(this.current().keys());
+        // The capture starts empty: Done stores exactly what is pressed, replacing the saved binding
+        // rather than extending it.
     }
 
     @Override
@@ -119,7 +122,9 @@ public final class KeyBindScreen extends Screen {
         graphics.centeredText(this.font, Component.literal(KeyNames.bindingHint()), center, y, DIM);
         y += LINE;
         graphics.centeredText(this.font,
-                Component.literal("Press any keys, then Done - Esc cancels"), center, y, DIM);
+                Component.literal(this.captured.isEmpty()
+                        ? "Press any keys, then Done - Esc confirms"
+                        : "Press any keys, then Done - Esc clears"), center, y, DIM);
     }
 
     private String capturedDisplay() {
@@ -152,9 +157,14 @@ public final class KeyBindScreen extends Screen {
     @Override
     public boolean keyPressed(KeyEvent event) {
         if (event.isEscape()) {
-            // Escape here means "leave without saving", not "clear": Clear has its own button, and
-            // silently deleting the binding on cancel would be surprising.
-            this.onClose();
+            // Escape works on the capture, not on the saved binding: with keys captured it empties the
+            // list so the next press starts a fresh combination, and with nothing captured it confirms
+            // the empty combination, like Done. Cancel is the way to leave without saving.
+            if (this.captured.isEmpty()) {
+                this.apply();
+            } else {
+                this.clear();
+            }
             return true;
         }
 

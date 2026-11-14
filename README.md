@@ -22,7 +22,7 @@ timing values.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-Use `clientinteractions-<mc version>-1.1.0.jar`. Requires
+Use `clientinteractions-<mc version>-1.2.0.jar`. Requires
 [Fabric API](https://modrinth.com/mod/fabric-api); [Mod Menu](https://modrinth.com/mod/modmenu) is
 optional and only adds the config button.
 
@@ -127,10 +127,12 @@ A hotkey is a **set of keys held together**. Any keyboard key or any mouse butto
 4-8) may take part, in any mix: `Ctrl+R`, `Ctrl+Shift+Alt+R`, `A+C` and `Ctrl+Left Click` are all the
 same kind of binding. Modifiers are not special, they are simply keys.
 
-Open the key button, press the keys in any order, then press **Done**. Nothing is committed until Done,
-so multi-key combinations like `A+C` can be built; **Undo** removes the last key and **Clear** empties
-the set. The screen shows the saved binding and the one being built. **Enter** also confirms; **Esc**
-always cancels without saving.
+Open the key button and press the keys in any order: the capture starts empty, and **Done** stores
+exactly what was pressed, replacing the saved binding rather than extending it. Nothing is committed
+until Done, so multi-key combinations like `A+C` can be built; **Undo** removes the last key and
+**Clear** empties the set. The screen shows the saved binding and the one being built. **Enter** also
+confirms; **Esc** clears the keys captured so far, and with nothing captured it confirms - so pressing
+it on a freshly opened screen clears the binding. Use **Cancel** to leave without changing anything.
 
 Matching rules:
 
@@ -304,7 +306,7 @@ if something is missing.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-请使用 `clientinteractions-<游戏版本>-1.1.0.jar`。需要
+请使用 `clientinteractions-<游戏版本>-1.2.0.jar`。需要
 [Fabric API](https://modrinth.com/mod/fabric-api)；[Mod Menu](https://modrinth.com/mod/modmenu) 可选，
 只用于添加配置按钮。
 
@@ -396,9 +398,11 @@ if something is missing.
 都能参与，可以随意混搭：`Ctrl+R`、`Ctrl+Shift+Alt+R`、`A+C`、`Ctrl+鼠标左键`
 都是同一类绑定。修饰键并不特殊，它们只是普通的键。
 
-点开按键按钮，按任意顺序按下这些键，然后按 **Done**。按下 Done 之前不会提交，所以
-`A+C` 这类多键组合可以完整录入；**Undo** 删掉最后一个键，**Clear** 清空。界面会同时
-显示已保存的绑定和正在录入的绑定。**Enter** 同样确认；**Esc** 始终是不保存退出。
+点开按键按钮，按任意顺序按下这些键：录入从空白开始，按下 **Done** 时会按已按下的键整体
+替换已保存的绑定，而不是在原绑定上追加。按下 Done 之前不会提交，所以 `A+C` 这类多键组合
+可以完整录入；**Undo** 删掉最后一个键，**Clear** 清空。界面会同时显示已保存的绑定和正在
+录入的绑定。**Enter** 同样确认；**Esc** 在已录入按键时清空这些按键，未录入任何按键时为
+确认——所以在刚打开的界面上按 Esc 会解除绑定。不想改动时请用 **Cancel** 退出。
 
 匹配规则：
 
