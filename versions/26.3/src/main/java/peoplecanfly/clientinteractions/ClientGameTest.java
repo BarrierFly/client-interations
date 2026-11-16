@@ -80,6 +80,8 @@ public final class ClientGameTest implements FabricClientGameTest {
             testHoldProducesASwing(context);
             testHoldSurvivesScreen(context);
             testAttackContinuesOnScreen(context);
+            testHoldKeepsButtonWithScreenOpen(context);
+            testChatScreenContinue(context);
             testNoDefaultHotkeys(context);
 
             LOGGER.info("All in-game checks passed");
@@ -973,6 +975,85 @@ public final class ClientGameTest implements FabricClientGameTest {
         });
         context.setScreen(() -> null);
         context.waitTicks(2);
+    }
+
+    /**
+     * The chat bar is a screen too: with the option on, attack and use keep acting while it is open.
+     *
+     * <p>Chat is the case where the player's own mouse presses never reach the key mappings - the GUI
+     * owns them - so a feature that is already running has to keep acting on its own. Both channels are
+     * checked by the injected-click counter, which only the mod increments.</p>
+     */
+    private void testChatScreenContinue(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setContinueOnScreen(true);
+            mod().config().setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(1, 1, 1));
+            mod().config().setSettings(Feature.USE_PERIODIC_CLICK, new FeatureSettings(1, 1, 1));
+            mod().syncEngine();
+            return null;
+        });
+        context.waitTicks(2);
+
+        context.setScreen(() -> new net.minecraft.client.gui.screens.ChatScreen("", true));
+        context.waitTicks(2);
+
+        require(compute(context, () -> client().gui.screen() instanceof net.minecraft.client.gui.screens.ChatScreen),
+                "chat: the chat bar is open");
+
+        compute(context, () -> {
+            mod().input().resetInjectedClicks();
+            mod().engine().activate(Feature.ATTACK_PERIODIC_CLICK);
+            mod().engine().activate(Feature.USE_PERIODIC_CLICK);
+            return null;
+        });
+        context.waitTicks(6);
+
+        require(compute(context, () -> mod().input().injectedClicks() > 0),
+                "chat: features keep acting while the chat bar is open");
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setContinueOnScreen(false);
+            return null;
+        });
+        context.setScreen(() -> null);
+        context.waitTicks(2);
+    }
+
+    /**
+     * A hold keeps its button held while a screen is open, with the option on.
+     *
+     * <p>Vanilla's releaseAll() clears every key flag when a screen opens and its input loop does not run
+     * to set them again, so a hold used to go dead there while the HUD still reported it. The flag must be
+     * re-asserted, and - the part the click tests could not see - it must actually stay down.</p>
+     */
+    private void testHoldKeepsButtonWithScreenOpen(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setContinueOnScreen(true);
+            mod().syncEngine();
+            mod().engine().activate(Feature.ATTACK_HOLD);
+            return null;
+        });
+        context.waitTicks(3);
+
+        context.setScreen(() -> new InventoryScreen(Minecraft.getInstance().player));
+        context.waitTicks(6);
+
+        require(compute(context, () -> client().options.keyAttack.isDown()),
+                "screen hold: the button stays down while the inventory is open");
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setContinueOnScreen(false);
+            mod().syncEngine();
+            return null;
+        });
+        context.setScreen(() -> null);
+        context.waitTicks(2);
+        require(compute(context, () -> !client().options.keyAttack.isDown()),
+                "screen hold: the button is released once the feature stops");
     }
 
     /** The config screen must not ship with a global hotkey of its own. */

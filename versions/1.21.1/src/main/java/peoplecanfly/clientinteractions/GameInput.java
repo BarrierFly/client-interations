@@ -123,7 +123,11 @@ public final class GameInput {
      * a real held mouse button.</p>
      */
     private void reassertHold(ActionChannel channel) {
-        if (!this.vanillaInputActive()) {
+        // Vanilla's releaseAll() clears every key flag when a screen opens, and its input loop does not
+        // run in that state to set them again. With the option on the flag is kept asserted for the
+        // channel the mod is driving, so a hold really is held while the GUI is up; the vanilla loop is
+        // not what acts on it there - the destroy loop and startUseItem are pumped directly.
+        if (!this.vanillaInputActive() && !this.continueOnScreen.getAsBoolean()) {
             return;
         }
 
@@ -150,7 +154,8 @@ public final class GameInput {
             // continueAttack(true), the loop the vanilla client runs per tick for a held attack button
             // and skips in that state. It continues destroying the block under the crosshair, stops
             // destroying when the crosshair moves off, and honours the "missed swing" timer and item
-            // use itself.
+            // use itself. Like a real held button it does not re-press every tick, so a mob still takes
+            // the one hit the press produced.
             if (this.continueOnScreen.getAsBoolean() && !this.vanillaInputActive()) {
                 this.client.continueAttack(true);
             }
@@ -248,8 +253,9 @@ public final class GameInput {
             return;
         }
 
-        if (down && !this.vanillaInputActive()) {
-            // Never force a button down into an open screen. The hold is re-asserted once it closes.
+        if (down && !this.vanillaInputActive() && !this.continueOnScreen.getAsBoolean()) {
+            // Never force a button down into an open screen unless the option asks for it. Without the
+            // option the hold is re-asserted once it closes.
             return;
         }
 

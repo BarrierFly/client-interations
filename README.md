@@ -22,7 +22,7 @@ timing values.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-Use `clientinteractions-<mc version>-1.2.0.jar`. Requires
+Use `clientinteractions-<mc version>-1.2.1.jar`. Requires
 [Fabric API](https://modrinth.com/mod/fabric-api); [Mod Menu](https://modrinth.com/mod/modmenu) is
 optional and only adds the config button.
 
@@ -101,10 +101,20 @@ running use feature still acts on the world while your inventory is open.
 
 The attack channel follows vanilla by default: a screen makes vanilla discard attack input, so attack
 clicks are dropped and a hold resumes when the screen closes. The config screen has a **Continue in
-GUI** switch for the other behaviour. With it on, attack clicks run while a screen (chat, inventory, a
-container) is open, and a hold keeps destroying whatever is under the crosshair by driving the destroy
-loop vanilla skips in that state. Off by default, because acting into an open GUI is not what everyone
-wants - with it on, the crosshair target keeps receiving attacks while you browse your inventory.
+GUI** switch for the other behaviour. With it on, all four attack behaviours keep running while any
+screen is open - chat, the inventory, a container:
+
+* **Clicks** (fast click, periodic click) run through the same entry points a real click uses.
+* **Holds** (hold, periodic hold) keep the button down. Vanilla clears every key flag when a screen
+  opens and its input loop does not run to set them again, so the mod re-asserts the flag and drives the
+  work itself: it pumps the destroy loop for the block under the crosshair, exactly as a held button
+  does in the world.
+
+A screen interrupts the *player's* input, not the automation. Nothing here makes a hotkey or a mouse
+press work while a GUI is up - a running feature keeps running, it does not start from inside a GUI.
+
+The switch is off by default, because acting into an open GUI is not what everyone wants: with it on the
+crosshair target keeps receiving attacks while you browse your inventory.
 
 ## Config screen
 
@@ -242,8 +252,8 @@ classpath regardless of the declaration.
   combination does not also attack, that a hotkey is refused while the master switch is off, that a forced hold swings the arm like a real press, that a hold
   resumes after a screen closes, that a press released before the next tick still completes its
   combination without the queued click reaching vanilla, that a movement key bound into a combination
-  stops walking while it is held and walks again once it breaks, that attack clicks and a held attack
-  keep acting with the inventory open while the continue-on-screen option is on, that a rebind fires without
+  stops walking while it is held and walks again once it breaks, that attack clicks, a held attack and
+  the chat bar keep acting with a screen open while the continue-on-screen option is on, that a rebind fires without
   a restart, that a mouse button binds too, that
   a typed number reaches the engine and is clamped, that fast click injects the extra clicks for a real
   press and stops after them, and that both screens draw visible text with no widget overlapping another or
@@ -306,7 +316,7 @@ if something is missing.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-请使用 `clientinteractions-<游戏版本>-1.2.0.jar`。需要
+请使用 `clientinteractions-<游戏版本>-1.2.1.jar`。需要
 [Fabric API](https://modrinth.com/mod/fabric-api)；[Mod Menu](https://modrinth.com/mod/modmenu) 可选，
 只用于添加配置按钮。
 
@@ -375,8 +385,17 @@ if something is missing.
 功能仍会生效。
 
 攻击通道默认与原版一致：界面打开时原版会丢弃攻击输入，所以攻击点击被丢弃，长按在界面关闭后
-恢复。配置界面里的 **Continue in GUI** 开关提供另一种行为：开启后，攻击点击会在界面（聊天栏、
-背包、容器）打开期间照常执行，长按也会驱动原版在该状态下跳过的破坏循环，继续破坏准星下的方块。
+恢复。配置界面里的 **Continue in GUI** 开关提供另一种行为：开启后四种攻击功能在任意界面
+（聊天栏、背包、容器）打开期间都继续运行：
+
+* **点击类**（快速连点、周期点击）走真实点击所用的同一入口。
+* **长按类**（长按、周期长按）保持按键按下。原版在界面打开时会清空所有按键状态，而它的输入循环
+  在该状态下不运行、不会重新置位，所以模组自己重新置位并驱动实际动作：为准星下的方块泵动破坏
+  循环，与世界中按住按键完全一致。
+
+界面打断的是**玩家**的输入，不是自动化。这里不会让快捷键或鼠标按在界面里生效——已在运行的功能
+继续运行，但功能不会从界面内部启动。
+
 默认关闭，因为向打开的界面注入操作并非人人都想要——开启后，浏览背包时准星目标仍会持续受到攻击。
 
 ## 配置界面
@@ -501,8 +520,8 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
   在按住期间停止前进且组合断开后恢复、含鼠标键的组合
   不会顺带攻击、总开关关闭时
   快捷键会被拒绝、长按会像真实按下一样挥动手臂、界面关闭后长按会恢复、在下一刻前松开的短按仍能
-  完成组合且其队列点击不会漏给原版、界面内继续操作开启时攻击点击与长按在背包打开期间持续生效、
-  改键无需重启即生效、
+  完成组合且其队列点击不会漏给原版、界面内继续操作开启时攻击点击、长按与聊天栏在界面打开期间
+  持续生效、改键无需重启即生效、
   鼠标键可绑定、输入的数值会进入引擎并被钳制、快速连点确实为一次真实按下按刻注入了额外点击
   并在达标后停止，
   以及在较小 GUI 下两个界面都能画出可见文字、且没有按钮互相重叠或跑出屏幕。

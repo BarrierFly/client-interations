@@ -226,7 +226,9 @@ public final class GameInput {
             // Already in the wanted state, but vanilla may have cleared the flag behind our back:
             // KeyMapping.releaseAll() runs whenever a screen opens and KeyMapping.setAll() on a mouse
             // re-grab. Re-asserting keeps an active hold from going dead while the HUD still shows it on.
-            if (down && this.vanillaInputActive()) {
+            // With a screen open the vanilla input loop does not run, so the flag is only re-asserted
+            // there when the continue-on-screen option asks for it; the acting is then pumped directly.
+            if (down && (this.vanillaInputActive() || this.continueOnScreen.getAsBoolean())) {
                 KeyMapping mapping = this.channelMapping(channel);
 
                 if (mapping != null && !mapping.isDown()) {
@@ -254,8 +256,9 @@ public final class GameInput {
             return;
         }
 
-        if (down && !this.vanillaInputActive()) {
-            // Never force a button down into an open screen. The hold is re-asserted once it closes.
+        if (down && !this.vanillaInputActive() && !this.continueOnScreen.getAsBoolean()) {
+            // Never force a button down into an open screen unless the option asks for it. Without the
+            // option the hold is re-asserted once it closes.
             return;
         }
 

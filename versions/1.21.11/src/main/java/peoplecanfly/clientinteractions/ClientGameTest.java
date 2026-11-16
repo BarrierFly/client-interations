@@ -80,6 +80,7 @@ public final class ClientGameTest implements FabricClientGameTest {
             testHoldProducesASwing(context);
             testHoldSurvivesScreen(context);
             testAttackContinuesOnScreen(context);
+            testHoldKeepsButtonWithScreenOpen(context);
             testNoDefaultHotkeys(context);
 
             LOGGER.info("All in-game checks passed");
@@ -971,6 +972,41 @@ public final class ClientGameTest implements FabricClientGameTest {
         });
         context.setScreen(() -> null);
         context.waitTicks(2);
+    }
+
+    /**
+     * A hold keeps its button held while a screen is open, with the option on.
+     *
+     * <p>Vanilla's releaseAll() clears every key flag when a screen opens and its input loop does not run
+     * to set them again, so a hold used to go dead there while the HUD still reported it. The flag must be
+     * re-asserted, and - the part the click tests could not see - it must actually stay down.</p>
+     */
+    private void testHoldKeepsButtonWithScreenOpen(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setContinueOnScreen(true);
+            mod().syncEngine();
+            mod().engine().activate(Feature.ATTACK_HOLD);
+            return null;
+        });
+        context.waitTicks(3);
+
+        context.setScreen(() -> new InventoryScreen(Minecraft.getInstance().player));
+        context.waitTicks(6);
+
+        require(compute(context, () -> client().options.keyAttack.isDown()),
+                "screen hold: the button stays down while the inventory is open");
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setContinueOnScreen(false);
+            mod().syncEngine();
+            return null;
+        });
+        context.setScreen(() -> null);
+        context.waitTicks(2);
+        require(compute(context, () -> !client().options.keyAttack.isDown()),
+                "screen hold: the button is released once the feature stops");
     }
 
     /** The config screen must not ship with a global hotkey of its own. */
