@@ -28,12 +28,31 @@ public final class AutomationEngine {
 
         /** Releases a button, called when its feature stops. */
         void release(ActionChannel channel);
+
+        /**
+         * Whether the player's own button for this channel is physically down right now.
+         *
+         * <p>Fast click acts for as long as the operation is in effect, and holding a button down is the
+         * operation being in effect: the vanilla client stops clicking after the first press and only
+         * keeps the button's continuous action going, so the multiplier needs to know the button is still
+         * held to keep making its clicks.</p>
+         */
+        boolean isPlayerHolding(ActionChannel channel);
     }
 
     private final Map<Feature, FeatureScheduler> schedulers = new EnumMap<>(Feature.class);
     private final Map<Feature, FeatureSettings> settings = new EnumMap<>(Feature.class);
     private final Host host;
     private boolean enabled = true;
+
+    /**
+     * Presses the player made on each channel this tick, reported by the caller before {@link #tick()}.
+     *
+     * <p>Vanilla handles those presses itself, so the multiplier only has to add the rest of their count.
+     * They are the reason fast click keeps working while the button is held: the press itself is handled
+     * once, and every further tick of the hold is a tick in effect that has to reach the count too.</p>
+     */
+    private final Map<ActionChannel, Integer> playerPressesThisTick = new EnumMap<>(ActionChannel.class);
 
 
     public AutomationEngine(Host host) {
@@ -70,6 +89,8 @@ public final class AutomationEngine {
         this.enabled = enabled;
 
         if (!enabled) {
+            this.playerPressesThisTick.clear();
+
             for (ActionChannel channel : ActionChannel.values()) {
                 if (this.activeFeature(channel) != null) {
                     this.host.release(channel);
@@ -198,8 +219,8 @@ public final class AutomationEngine {
                 }
 
                 if (feature.shape() == Feature.Shape.FAST_CLICK) {
-                    // Fast click adds no action of its own; it multiplies what the channel produces. Its
-                    // clock still advances, so the feature behaves like every other one while idle.
+                    // Fast click adds no action of its own; it scales what the channel does. Its clock
+                    // still advances, so the feature behaves like every other one while idle.
                     scheduler.tick(feature, this.settings.get(feature));
                     continue;
                 }
@@ -210,13 +231,62 @@ public final class AutomationEngine {
                 release |= action.releases();
             }
 
-            if (clicks > 0) {
-                clicks *= this.playerClickCount(channel);
-            }
+            clicks = this.applyFastClick(channel, clicks, hold);
 
             if (clicks > 0 || hold || release) {
                 this.host.apply(channel, clicks, hold, release);
             }
+        }
+
+        this.playerPressesThisTick.clear();
+    }
+
+    /**
+     * Scales one tick of a channel by fast click, when it is running.
+     *
+     * <p>The requirement is "the operation happens {@code count} times in every tick it is in effect",
+     * not "once per press": while the player holds the button the vanilla client stops clicking after the
+     * first press, so the remaining ticks of the hold are produced here. A tick is in effect when the
+     * channel would click anyway (a running feature asked for clicks) or when the button is held - by the
+     * player or by a feature's hold. The player's own press is already performed by vanilla, so only the
+     * rest of that tick's count is injected.</p>
+     *
+     * @return how many clicks this tick must inject
+     */
+    private int applyFastClick(ActionChannel channel, int clicks, boolean hold) {
+        Feature fastClick = Feature.fastClickFor(channel);
+
+        if (fastClick == null || !this.schedulers.get(fastClick).isActive()) {
+            return clicks;
+        }
+
+        int presses = this.playerPressesThisTick.getOrDefault(channel, 0);
+        boolean inEffect = clicks > 0 || hold || presses > 0 || this.host.isPlayerHolding(channel);
+
+        if (!inEffect) {
+            return clicks;
+        }
+
+        int times = this.settings.get(fastClick).count();
+
+        // One operation is what a tick performs by default; a feature that asks for more than one click is
+        // scaled with it rather than replaced by the count.
+        int target = Math.max(clicks, 1) * times;
+
+        // Vanilla already performed the player's own presses on this tick.
+        return Math.max(0, target - presses);
+    }
+
+    /**
+     * Reports presses the player made on this channel, before this tick's {@link #tick()}.
+     *
+     * <p>Vanilla performs them itself, so they are recorded to subtract from the tick's count rather than
+     * to inject anything: the tick must reach {@code count} clicks in total, and the press is already one
+     * of them.</p>
+     */
+    public void recordPlayerPress(ActionChannel channel, int presses) {
+        if (presses > 0) {
+            this.playerPressesThisTick.merge(channel, presses, Integer::sum);
         }
     }
 
@@ -224,8 +294,8 @@ public final class AutomationEngine {
      * How many clicks one click of this channel becomes while fast click is running.
      *
      * <p>Returns {@code 1} unless fast click is active, in which case it is that feature's {@code count}.
-     * The multiplier applies to every click the channel produces: the player's own press, and the clicks a
-     * running feature of the same channel asks for.</p>
+     * Used by callers that need the multiplier without running a tick; {@link #tick()} applies it itself.
+     * </p>
      */
     public int playerClickCount(ActionChannel channel) {
         Feature fastClick = Feature.fastClickFor(channel);

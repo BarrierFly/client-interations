@@ -66,6 +66,23 @@ public final class GameInput {
     }
 
     /**
+     * Whether the player is holding this button down themselves.
+     *
+     * <p>Distinct from {@link #owns}: a hold the mod drives, or a button the mod re-asserts, is not the
+     * player holding anything. Read from the physical device, which is the state a real press sets and no
+     * mod write influences, so the multiplier cannot mistake its own hold for a held operation.</p>
+     */
+    public boolean isPlayerHolding(ActionChannel channel) {
+        KeyMapping mapping = this.channelMapping(channel);
+
+        if (mapping == null || this.client.options == null) {
+            return false;
+        }
+
+        return HeldKeys.isHeld(mapping.saveString(), this.client, java.util.Set.of());
+    }
+
+    /**
      * Performs one tick worth of automation for one channel.
      *
      * @param channel the channel being driven
@@ -200,25 +217,6 @@ public final class GameInput {
 
             this.injected++;
         }
-    }
-
-    /**
-     * Performs the extra clicks of the multiplier for one click the game already handled.
-     *
-     * <p>Used for the player's own press: vanilla processes that press itself, so only the rest of the
-     * clicks have to be injected - on this same tick, which is what makes one press really perform
-     * {@code count} clicks. Every click still goes through the same entry point a real click uses, so
-     * vanilla's own checks (attack cooldown, item use state, "already using an item") still apply.</p>
-     *
-     * @param channel the button to click
-     * @param clicks how many additional clicks to perform
-     */
-    public void injectExtraClicks(ActionChannel channel, int clicks) {
-        if (clicks <= 0) {
-            return;
-        }
-
-        this.click(channel, clicks);
     }
 
     /** How many clicks the mod has injected, so a test can prove the multiplier really fired. */

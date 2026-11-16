@@ -600,27 +600,29 @@ public final class ClientGameTest implements FabricClientGameTest {
                 .contains(keyName);
     }
     /**
-     * Proves fast click actually multiplies a real click, not just reports a number.
+     * Proves fast click performs the count in every tick the button is actually held.
      *
-     * <p>The physical press is detected from vanilla's own key state, which is exactly what the mod reads
-     * at runtime, so this exercises the same path a player would. The witness is the count of clicks the
-     * mod injected: with the feature off it must be zero, and with it on one press must produce
-     * {@code count - 1} extras - all of them on the press tick, since the multiplier works within the
-     * tick the click happens in.</p>
+     * <p>The witness is the count of clicks the mod injected, which only it increments. Off, holding the
+     * button injects nothing. On, the press tick carries {@code count - 1} extras (vanilla performs the
+     * press itself) and every further held tick carries the whole {@code count} by itself - vanilla stops
+     * clicking after the first press, so without this the hold would produce a single hit. Releasing the
+     * button stops it, with nothing owed afterwards.</p>
      */
     private void testFastClickMultipliesRealClicks(ClientGameTestContext context) {
         configure(context, Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 6));
 
-        // Off: pressing the button must inject nothing.
+        // Off: holding the button must inject nothing.
         compute(context, () -> {
             mod().input().resetInjectedClicks();
             return null;
         });
-        pressAttackKey(context, true);
+        holdAttackKey(context, true);
+        context.waitTicks(3);
         require(compute(context, () -> mod().input().injectedClicks() == 0),
-                "fast click: off injects nothing for a player press");
+                "fast click: off injects nothing while the button is held");
+        holdAttackKey(context, false);
+        context.waitTicks(2);
 
-        // On: one press must inject count - 1 extra clicks.
         toggle(context, Feature.ATTACK_FAST_CLICK);
         context.waitTicks(2);
         compute(context, () -> {
@@ -628,22 +630,50 @@ public final class ClientGameTest implements FabricClientGameTest {
             return null;
         });
 
-        pressAttackKey(context, true);
+        // Press and hold. The press tick gets count - 1 (vanilla did the press), then three held ticks.
+        holdAttackKey(context, true);
+        int afterPress = compute(context, () -> mod().input().injectedClicks());
+        LOGGER.info("fast click: {} extras on the press tick", afterPress);
+        require(afterPress == 5,
+                "fast click: the press tick performs the count, so 5 extras, saw " + afterPress);
 
-        // The extras land in the tick the press is processed in, so one tick is all they need. Waiting
-        // longer checks both the count and that nothing lingers: a leak would overshoot.
-        context.waitTick();
-        int injected = compute(context, () -> mod().input().injectedClicks());
-        LOGGER.info("fast click: injected {} extra clicks for one player press", injected);
-        require(injected == 5,
-                "fast click: one press becomes 6 clicks on its own tick, so 5 extra, saw " + injected);
+        int before = afterPress;
+        int heldTicks = 0;
 
-        context.waitTicks(5);
-        require(compute(context, () -> mod().input().injectedClicks() == 5),
-                "fast click: no further clicks are owed after the press tick");
+        for (int i = 0; i < 3; i++) {
+            context.waitTick();
+            int now = compute(context, () -> mod().input().injectedClicks());
+            require(now - before == 6,
+                    "fast click: every held tick injects the whole count, saw " + (now - before));
+            before = now;
+            heldTicks++;
+        }
+
+        LOGGER.info("fast click: {} further held ticks each injected 6 clicks", heldTicks);
+
+        holdAttackKey(context, false);
+        context.waitTicks(2);
+        int released = compute(context, () -> mod().input().injectedClicks());
+        require(released == before, "fast click: releasing the button stops the clicks");
 
         stop(context, Feature.ATTACK_FAST_CLICK);
         context.waitTicks(2);
+    }
+
+    /** Presses (or releases) the attack button and holds that state, without a click of its own. */
+    private void holdAttackKey(ClientGameTestContext context, boolean down) {
+        compute(context, () -> {
+            com.mojang.blaze3d.platform.InputConstants.Key left = com.mojang.blaze3d.platform.InputConstants
+                    .getKey(client().options.keyAttack.saveString());
+            net.minecraft.client.KeyMapping.set(left, down);
+
+            if (down) {
+                net.minecraft.client.KeyMapping.click(left);
+            }
+
+            return null;
+        });
+        context.waitTicks(1);
     }
 
     /**

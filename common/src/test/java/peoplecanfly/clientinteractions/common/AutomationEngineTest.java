@@ -14,6 +14,9 @@ class AutomationEngineTest {
     private static final class RecordingHost implements AutomationEngine.Host {
         final List<String> events = new ArrayList<>();
 
+        /** Channels whose button the test pretends the player is holding. */
+        final java.util.Set<ActionChannel> heldByPlayer = java.util.EnumSet.noneOf(ActionChannel.class);
+
         @Override
         public void apply(ActionChannel channel, int clicks, boolean hold, boolean release) {
             StringBuilder b = new StringBuilder(channel.id());
@@ -32,6 +35,11 @@ class AutomationEngineTest {
         @Override
         public void release(ActionChannel channel) {
             this.events.add(channel.id() + ":stop");
+        }
+
+        @Override
+        public boolean isPlayerHolding(ActionChannel channel) {
+            return this.heldByPlayer.contains(channel);
         }
 
         long count(String needle) {
@@ -236,6 +244,41 @@ class AutomationEngineTest {
 
         engine.tick();
         assertEquals(1, host.count("attack:hold"), "the hold keeps driving the button");
+    }
+
+    @Test
+    @DisplayName("while the player holds the button, every tick performs the whole count")
+    void fastClickKeepsClickingWhileTheButtonIsHeld() {
+        RecordingHost host = new RecordingHost();
+        AutomationEngine engine = engine(host);
+        engine.setSettings(Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 3));
+        engine.activate(Feature.ATTACK_FAST_CLICK);
+
+        // The button is held down for four ticks. Vanilla performs the press itself on the first one.
+        host.heldByPlayer.add(ActionChannel.ATTACK);
+        engine.recordPlayerPress(ActionChannel.ATTACK, 1);
+        host.events.clear();
+
+        engine.tick();
+        assertEquals(java.util.List.of("attack:click2"), host.events,
+                "the press tick performs the count: vanilla did one, the mod adds count - 1");
+
+        int injected = 0;
+
+        for (int i = 0; i < 3; i++) {
+            host.events.clear();
+            engine.tick();
+            assertEquals(java.util.List.of("attack:click3"), host.events,
+                    "every further held tick performs the whole count by itself");
+            injected++;
+        }
+
+        assertEquals(3, injected);
+
+        host.heldByPlayer.remove(ActionChannel.ATTACK);
+        host.events.clear();
+        engine.tick();
+        assertEquals(0, host.events.size(), "released and idle, the channel does nothing");
     }
 
     @Test

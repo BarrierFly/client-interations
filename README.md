@@ -22,7 +22,7 @@ timing values.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-Use `clientinteractions-<mc version>-1.3.0.jar`. Requires
+Use `clientinteractions-<mc version>-1.3.1.jar`. Requires
 [Fabric API](https://modrinth.com/mod/fabric-api); [Mod Menu](https://modrinth.com/mod/modmenu) is
 optional and only adds the config button.
 
@@ -34,7 +34,7 @@ Four behaviours for each button. Every feature is separate: it has its own switc
 | Feature | Behaviour | Acts when | Values |
 |---------|-----------|-----------|--------|
 | Hold | Keeps the button pressed until switched off | on its own | none |
-| Fast click | Every click of that button becomes `Clicks` clicks, in the same tick | alongside the other features | clicks |
+| Fast click | `Clicks` clicks in every tick the button is operated | alongside the other features | clicks |
 | Periodic click | Fires `Clicks` clicks over consecutive ticks every `Interval` | on its own | interval, clicks |
 | Periodic hold | Holds for `Hold` ticks every `Interval` | on its own | interval, hold |
 
@@ -42,15 +42,18 @@ Grouped per button: **Attack** and **Use**. Times are game ticks (1 tick = 50 ms
 
 ### Fast click is a multiplier, not a timer
 
-Fast click never acts on its own. It multiplies the clicks its channel produces: every click that
-channel makes in a tick becomes `Clicks` clicks, all in that same tick.
+Fast click never acts on its own. While the operation is in effect, **every tick performs `Clicks`
+clicks**, all within that tick. "In effect" means the button is being operated: you are holding it down,
+or a feature of the same button is driving it.
 
-* **Your own clicks.** One physical press becomes `Clicks` clicks. Vanilla handles your press, the mod
-  adds the remaining `Clicks - 1` in the same tick.
+* **Holding the button.** The press tick performs `Clicks` (vanilla handles your press, the mod adds
+  `Clicks - 1`), and every further tick the button stays down performs `Clicks` more. Vanilla stops
+  clicking after the first press and only keeps its continuous action going, so this is what makes a
+  held fast click keep clicking instead of landing one hit.
 * **The other features of the same button.** It is *not* exclusive with them, because it does not drive
-  the button itself - it only scales what they ask for. Periodic click configured for one click a tick
+  the button itself - it scales what they ask for. Periodic click configured for one click a tick
   performs `Clicks` clicks per tick while fast click is on.
-* **Nothing at all** when the channel would not have clicked anyway, so it is not a clock.
+* **Nothing at all** when the button is not operated, so it is not a clock.
 
 What each click achieves is whatever vanilla grants it; see Vanilla limits. Several clicks in one tick
 do not add up to several full-strength hits: the attack cooldown scales the damage of every hit after
@@ -321,7 +324,7 @@ if something is missing.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-请使用 `clientinteractions-<游戏版本>-1.3.0.jar`。需要
+请使用 `clientinteractions-<游戏版本>-1.3.1.jar`。需要
 [Fabric API](https://modrinth.com/mod/fabric-api)；[Mod Menu](https://modrinth.com/mod/modmenu) 可选，
 只用于添加配置按钮。
 
@@ -332,7 +335,7 @@ if something is missing.
 | 功能 | 行为 | 触发时机 | 参数 |
 |------|------|----------|------|
 | 长按 | 保持按下直到关闭 | 自动 | 无 |
-| 快速连点 | 该键的每次点击都变成 `次数` 次，且在同一刻内 | 与同按键的其它功能并行 | 次数 |
+| 快速连点 | 按键被操作的每一刻都执行 `次数` 次 | 与同按键的其它功能并行 | 次数 |
 | 周期点击 | 每隔 `间隔` 刻，在连续刻上打出 `次数` 次点击 | 自动 | 间隔、次数 |
 | 周期长按 | 每隔 `间隔` 刻按住 `按住` 刻 | 自动 | 间隔、按住 |
 
@@ -340,14 +343,15 @@ if something is missing.
 
 ### 快速连点是倍率，不是定时器
 
-快速连点从不自行动作。它放大该通道产生的点击：该通道在某一刻发出的每次点击都变成 `次数` 次，
-全部落在同一刻内。
+快速连点从不自行动作。当操作处于生效状态时，**每一刻都执行 `次数` 次**，全部落在该刻内。
+「生效」指按键正在被操作：你按着它，或同一按键的功能正在驱动它。
 
-* **你自己的点击**：一次物理按下变成 `次数` 次点击。你的按下由原版处理，模组在同一刻补上其余
-  `次数 - 1` 次。
+* **按住按键时**：按下那一刻意执行 `次数` 次（你的按下由原版处理，模组补上 `次数 - 1` 次），
+  此后按键仍按住的每一刻都再执行 `次数` 次。原版在第一次按下后就不再点击、只维持连续动作，
+  正是这一步让按住时的快速连点持续点击，而不是只命中一下。
 * **同一按键的其它功能**：它与其他功能**不互斥**，因为它不驱动按键本身，只放大对方请求的次数。
   周期点击配置为每刻 1 次，开启快速连点后每刻执行 `次数` 次。
-* **什么都不做**：该通道本来这一刻不点击时它也不点击，所以它不是时钟。
+* **什么都不做**：按键未被操作时它不点击，所以它不是时钟。
 
 每次点击实际达成多少由原版规则决定，见「原版限制」。同一刻内的多次点击并不等于多次满伤害命中：
 攻击冷却会缩放同一刻内第一次之后的每次攻击伤害。
