@@ -69,14 +69,27 @@ class AutomationEngineTest {
     }
 
     @Test
-    @DisplayName("activating a feature switches off the other features of the same channel")
+    @DisplayName("activating a button-driving feature switches off the others, but never the multiplier")
     void featuresOfOneChannelAreMutuallyExclusive() {
         AutomationEngine engine = engine(new RecordingHost());
 
+        // Fast click multiplies the channel's clicks instead of driving the button, so it is not part of
+        // the exclusion group: it stays on across every activation in this loop.
+        engine.activate(Feature.ATTACK_FAST_CLICK);
+
         for (Feature feature : Feature.forChannel(ActionChannel.ATTACK)) {
+            if (feature.shape() == Feature.Shape.FAST_CLICK) {
+                continue;
+            }
+
             engine.activate(feature);
 
             for (Feature other : Feature.forChannel(ActionChannel.ATTACK)) {
+                if (other.shape() == Feature.Shape.FAST_CLICK) {
+                    assertTrue(engine.isActive(other), "the multiplier survives " + feature.id());
+                    continue;
+                }
+
                 assertEquals(other == feature, engine.isActive(other),
                         other.id() + " while " + feature.id() + " is active");
             }
@@ -118,7 +131,7 @@ class AutomationEngineTest {
     }
 
     @Test
-    @DisplayName("a release is sent when switching features of one channel")
+    @DisplayName("a release is sent when switching between button-driving features of one channel")
     void switchingReleasesTheOldButton() {
         RecordingHost host = new RecordingHost();
         AutomationEngine engine = engine(host);
@@ -126,7 +139,7 @@ class AutomationEngineTest {
         engine.tick();
         host.events.clear();
 
-        engine.activate(Feature.ATTACK_FAST_CLICK);
+        engine.activate(Feature.ATTACK_PERIODIC_CLICK);
 
         assertEquals(1, host.count("attack:stop"), "the hold must be released before the new feature runs");
     }
@@ -166,46 +179,85 @@ class AutomationEngineTest {
     }
 
     @Test
-    @DisplayName("fast click spreads its extra clicks over consecutive ticks")
-    void fastClickRepeatsOneClickPerTick() {
+    @DisplayName("fast click multiplies a channel's own clicks on the same tick")
+    void fastClickMultipliesTheChannelsClicks() {
         RecordingHost host = new RecordingHost();
         AutomationEngine engine = engine(host);
+        engine.setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(1, 1, 1));
         engine.setSettings(Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 4));
+
+        // Periodic click asks for one click per tick; with fast click on it must ask for four.
+        engine.activate(Feature.ATTACK_PERIODIC_CLICK);
         engine.activate(Feature.ATTACK_FAST_CLICK);
         host.events.clear();
 
-        // The player's own press is not repeated on the same tick; vanilla is still processing it.
-        assertEquals(3, engine.recordPlayerClick(ActionChannel.ATTACK));
         engine.tick();
-        assertEquals(0, host.count("click"), "the press tick itself emits nothing");
 
-        engine.tick();
-        assertEquals(1, host.count("click"), "the first repeat lands on the next tick");
-
-        engine.tick();
-        engine.tick();
-        assertEquals(3, host.count("click"), "one repeat per tick, three in total");
-
-        engine.tick();
-        assertEquals(3, host.count("click"), "and then it stops");
-        assertEquals(0, engine.pendingPlayerClicks(ActionChannel.ATTACK));
+        assertEquals(1, host.count("attack:click4"), "one tick must carry all four clicks");
+        assertEquals(0, host.count("attack:click1"), "the single-click form must not be used");
+        assertEquals(1, host.events.size(), "all of them are one apply call, on one tick");
     }
 
     @Test
-    @DisplayName("stopping fast click drops the repeats it still owed")
-    void stoppingFastClickDropsPendingClicks() {
+    @DisplayName("fast click runs alongside the channel's own feature instead of excluding it")
+    void fastClickDoesNotExcludeTheChannelsFeature() {
+        AutomationEngine engine = engine(new RecordingHost());
+
+        engine.activate(Feature.ATTACK_PERIODIC_CLICK);
+        engine.activate(Feature.ATTACK_FAST_CLICK);
+
+        assertTrue(engine.isActive(Feature.ATTACK_PERIODIC_CLICK),
+                "activating fast click must leave periodic click alone");
+        assertTrue(engine.isActive(Feature.ATTACK_FAST_CLICK));
+
+        engine.activate(Feature.ATTACK_HOLD);
+        assertTrue(engine.isActive(Feature.ATTACK_FAST_CLICK),
+                "activating hold must leave fast click alone");
+        assertFalse(engine.isActive(Feature.ATTACK_PERIODIC_CLICK),
+                "the two button-driving features still exclude each other");
+    }
+
+    @Test
+    @DisplayName("stopping fast click leaves the channel's own feature running")
+    void stoppingFastClickKeepsTheChannelsFeature() {
         RecordingHost host = new RecordingHost();
         AutomationEngine engine = engine(host);
-        engine.setSettings(Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 5));
+        engine.setSettings(Feature.ATTACK_HOLD, new FeatureSettings(20, 10, 1));
+        engine.activate(Feature.ATTACK_HOLD);
         engine.activate(Feature.ATTACK_FAST_CLICK);
-        engine.recordPlayerClick(ActionChannel.ATTACK);
         engine.tick();
         host.events.clear();
 
         engine.stop(Feature.ATTACK_FAST_CLICK);
-        engine.tick();
 
-        assertEquals(0, host.count("click"), "no repeat may land after the feature was switched off");
+        assertTrue(engine.isActive(Feature.ATTACK_HOLD), "the hold must survive stopping fast click");
+        assertEquals(0, host.count("attack:stop"),
+                "stopping a multiplier must not release the button a hold is holding");
+
+        engine.tick();
+        assertEquals(1, host.count("attack:hold"), "the hold keeps driving the button");
+    }
+
+    @Test
+    @DisplayName("the multiplier applies per tick and stops with the feature")
+    void multiplierStopsWithTheFeature() {
+        RecordingHost host = new RecordingHost();
+        AutomationEngine engine = engine(host);
+        engine.setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(1, 1, 1));
+        engine.setSettings(Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 3));
+        engine.activate(Feature.ATTACK_PERIODIC_CLICK);
+        engine.activate(Feature.ATTACK_FAST_CLICK);
+        host.events.clear();
+
+        engine.tick();
+        engine.tick();
+        assertEquals(2, host.count("attack:click3"));
+        assertEquals(0, host.count("attack:click1"));
+
+        engine.stop(Feature.ATTACK_FAST_CLICK);
+        host.events.clear();
+        engine.tick();
+        assertEquals(1, host.count("attack:click1"), "off, the channel clicks once per tick again");
     }
 
     @Test

@@ -555,10 +555,15 @@ public final class ClientInteractionsClient implements ClientModInitializer {
         }
 
         int presses = this.newPresses.getOrDefault(mapping.saveString(), 0);
+        int times = this.engine.playerClickCount(channel);
 
-        for (int i = 0; i < presses; i++) {
-            this.engine.recordPlayerClick(channel);
+        if (presses == 0 || times <= 1) {
+            return;
         }
+
+        // The player's press is handled by vanilla; the rest of its clicks land now, on the same tick, so
+        // one physical press really performs `times` clicks in the tick it happened.
+        this.input.injectExtraClicks(channel, presses * (times - 1));
     }
 
     /** HUD lines for whatever is currently running. */

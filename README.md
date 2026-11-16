@@ -22,7 +22,7 @@ timing values.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-Use `clientinteractions-<mc version>-1.2.1.jar`. Requires
+Use `clientinteractions-<mc version>-1.3.0.jar`. Requires
 [Fabric API](https://modrinth.com/mod/fabric-api); [Mod Menu](https://modrinth.com/mod/modmenu) is
 optional and only adds the config button.
 
@@ -34,7 +34,7 @@ Four behaviours for each button. Every feature is separate: it has its own switc
 | Feature | Behaviour | Acts when | Values |
 |---------|-----------|-----------|--------|
 | Hold | Keeps the button pressed until switched off | on its own | none |
-| Fast click | Turns one of **your** clicks into `Clicks` clicks | only when you click | clicks |
+| Fast click | Every click of that button becomes `Clicks` clicks, in the same tick | alongside the other features | clicks |
 | Periodic click | Fires `Clicks` clicks over consecutive ticks every `Interval` | on its own | interval, clicks |
 | Periodic hold | Holds for `Hold` ticks every `Interval` | on its own | interval, hold |
 
@@ -42,16 +42,19 @@ Grouped per button: **Attack** and **Use**. Times are game ticks (1 tick = 50 ms
 
 ### Fast click is a multiplier, not a timer
 
-Fast click is the only feature that does nothing by itself. Turn it on and every click **you** make on
-that mouse button is repeated for you, so one physical click becomes `Clicks` clicks. Every other
-feature acts on its own once switched on.
+Fast click never acts on its own. It multiplies the clicks its channel produces: every click that
+channel makes in a tick becomes `Clicks` clicks, all in that same tick.
 
-The repeats are injected one per tick, starting on the tick after your press. One client tick has one
-crosshair target and one input pass, so repeats landing on the same tick cannot act as separate clicks:
-on the use channel a second call in the same tick would place another block or restart the same use,
-and on the attack channel it would swing into an attack cooldown the first click just reset. One per
-tick is also simply the rate a player produces distinct clicks at. What each click then achieves is
-whatever vanilla grants it; see Vanilla limits.
+* **Your own clicks.** One physical press becomes `Clicks` clicks. Vanilla handles your press, the mod
+  adds the remaining `Clicks - 1` in the same tick.
+* **The other features of the same button.** It is *not* exclusive with them, because it does not drive
+  the button itself - it only scales what they ask for. Periodic click configured for one click a tick
+  performs `Clicks` clicks per tick while fast click is on.
+* **Nothing at all** when the channel would not have clicked anyway, so it is not a clock.
+
+What each click achieves is whatever vanilla grants it; see Vanilla limits. Several clicks in one tick
+do not add up to several full-strength hits: the attack cooldown scales the damage of every hit after
+the first in that tick.
 
 ### Why periodic click fires its clicks on separate ticks
 
@@ -62,9 +65,10 @@ reset. Each click then achieves whatever vanilla grants it; see Vanilla limits.
 
 ## Mutual exclusion
 
-Activating a feature switches off the other features of the same button, because they drive the same
-mouse button and would fight over it. Attack and Use are independent, so one of each can run at the same
-time.
+Hold, periodic click and periodic hold each drive the button themselves, so activating one switches off
+the other two of the same button - they would fight over it. Fast click is exempt in both directions: it
+never switches anything off and is never switched off, because it only scales clicks. Attack and Use are
+independent, so one of each can run at the same time.
 
 ## Defaults
 
@@ -113,8 +117,9 @@ screen is open - chat, the inventory, a container:
 A screen interrupts the *player's* input, not the automation. Nothing here makes a hotkey or a mouse
 press work while a GUI is up - a running feature keeps running, it does not start from inside a GUI.
 
-The switch is off by default, because acting into an open GUI is not what everyone wants: with it on the
-crosshair target keeps receiving attacks while you browse your inventory.
+The switch is **on** by default, so a running feature does not stop when you open your inventory or the
+chat bar. Turn it off to restore the vanilla rule. While it is on the crosshair target does keep
+receiving attacks while you browse your inventory.
 
 ## Config screen
 
@@ -203,7 +208,7 @@ values fall back to defaults. The format is identical on every supported version
 ```json
 {
   "enabled": true, "hud": true, "messages": true,
-  "continueOnScreen": false,
+  "continueOnScreen": true,
   "attack_hold":          { "interval": 20, "duration": 10, "count": 3,
                             "key": "key.keyboard.r", "modifiers": "ctrl+shift" },
   "attack_periodic_hold": { "interval": 20, "duration": 10, "count": 3,
@@ -316,7 +321,7 @@ if something is missing.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-请使用 `clientinteractions-<游戏版本>-1.2.1.jar`。需要
+请使用 `clientinteractions-<游戏版本>-1.3.0.jar`。需要
 [Fabric API](https://modrinth.com/mod/fabric-api)；[Mod Menu](https://modrinth.com/mod/modmenu) 可选，
 只用于添加配置按钮。
 
@@ -327,7 +332,7 @@ if something is missing.
 | 功能 | 行为 | 触发时机 | 参数 |
 |------|------|----------|------|
 | 长按 | 保持按下直到关闭 | 自动 | 无 |
-| 快速连点 | 把**你自己**的一次点击变成 `次数` 次 | 仅在你点击时 | 次数 |
+| 快速连点 | 该键的每次点击都变成 `次数` 次，且在同一刻内 | 与同按键的其它功能并行 | 次数 |
 | 周期点击 | 每隔 `间隔` 刻，在连续刻上打出 `次数` 次点击 | 自动 | 间隔、次数 |
 | 周期长按 | 每隔 `间隔` 刻按住 `按住` 刻 | 自动 | 间隔、按住 |
 
@@ -335,13 +340,17 @@ if something is missing.
 
 ### 快速连点是倍率，不是定时器
 
-快速连点是唯一不会自行动作的功能。开启后，**你**在该鼠标键上的每一次点击都会被模组重复若干次，
-一次物理点击变成 `次数` 次点击。其余功能一旦开启都会自动执行。
+快速连点从不自行动作。它放大该通道产生的点击：该通道在某一刻发出的每次点击都变成 `次数` 次，
+全部落在同一刻内。
 
-追加的点击从你按下后的下一刻开始，每刻注入一次。一刻只有一个准星目标、一次输入处理，同一刻的
-重复不可能成为多次独立的点击：使用通道在同刻的第二次调用会再放置一个方块或重启同一次使用，
-攻击通道则会挥进第一次点击刚重置的攻击冷却。每刻一次也就是玩家打出独立点击的速率。每次点击
-实际达成多少，由原版规则决定，见「原版限制」。
+* **你自己的点击**：一次物理按下变成 `次数` 次点击。你的按下由原版处理，模组在同一刻补上其余
+  `次数 - 1` 次。
+* **同一按键的其它功能**：它与其他功能**不互斥**，因为它不驱动按键本身，只放大对方请求的次数。
+  周期点击配置为每刻 1 次，开启快速连点后每刻执行 `次数` 次。
+* **什么都不做**：该通道本来这一刻不点击时它也不点击，所以它不是时钟。
+
+每次点击实际达成多少由原版规则决定，见「原版限制」。同一刻内的多次点击并不等于多次满伤害命中：
+攻击冷却会缩放同一刻内第一次之后的每次攻击伤害。
 
 ### 周期点击为什么把点击分散到不同刻
 
@@ -351,8 +360,9 @@ if something is missing.
 
 ## 互斥
 
-同一按键上开启一个功能时，会自动关闭该按键的其它功能——它们驱动同一个鼠标键，同时运行会互相
-抢夺。攻击与使用互相独立，各自可以同时开一个。
+长按、周期点击、周期长按各自驱动按键本身，所以开启其中一个会关闭同一按键的另外两个——它们会
+争抢同一个按键。快速连点在两个方向上都是例外：它不会关闭任何功能，也不会被其它功能关闭，因为
+它只放大点击次数。攻击与使用互相独立，各自可以同时开一个。
 
 ## 默认状态
 
@@ -396,7 +406,8 @@ if something is missing.
 界面打断的是**玩家**的输入，不是自动化。这里不会让快捷键或鼠标按在界面里生效——已在运行的功能
 继续运行，但功能不会从界面内部启动。
 
-默认关闭，因为向打开的界面注入操作并非人人都想要——开启后，浏览背包时准星目标仍会持续受到攻击。
+该开关**默认开启**，所以打开背包或聊天栏时已在运行的功能不会停。关掉它即可回到原版规则。开启
+期间，浏览背包时准星目标仍会持续受到攻击。
 
 ## 配置界面
 
@@ -476,7 +487,7 @@ if something is missing.
 ```json
 {
   "enabled": true, "hud": true, "messages": true,
-  "continueOnScreen": false,
+  "continueOnScreen": true,
   "attack_hold":          { "interval": 20, "duration": 10, "count": 3,
                             "key": "key.keyboard.r", "modifiers": "ctrl+shift" },
   "attack_periodic_hold": { "interval": 20, "duration": 10, "count": 3,
@@ -511,7 +522,7 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 
 * 66 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
   组合键匹配（键集合、鼠标键、重叠绑定之间的优先级、配置键在长度相同时优先、多余的修饰键会
-  屏蔽绑定）、哪些键会被接管、快速连点的分刻倍率语义、周期点击的
+  屏蔽绑定）、哪些键会被接管、快速连点的同刻倍率语义与并行运行、周期点击的
   跨刻分布，以及 7000 刻的漂移检查。
 * 1.21.10、1.21.11、26.3 有游戏内测试：启动真实客户端、创建世界，断言长按、点击、每刻一步的
   计时、互斥、总开关、界面行为、组合键匹配、多键组合被完整捕获、按下后不会自我抵消、
@@ -522,15 +533,15 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
   快捷键会被拒绝、长按会像真实按下一样挥动手臂、界面关闭后长按会恢复、在下一刻前松开的短按仍能
   完成组合且其队列点击不会漏给原版、界面内继续操作开启时攻击点击、长按与聊天栏在界面打开期间
   持续生效、改键无需重启即生效、
-  鼠标键可绑定、输入的数值会进入引擎并被钳制、快速连点确实为一次真实按下按刻注入了额外点击
-  并在达标后停止，
+  鼠标键可绑定、输入的数值会进入引擎并被钳制、快速连点的同一刻内倍率（玩家的一次真实按下与
+  周期点击的一刻各自注入完整的次数），
   以及在较小 GUI 下两个界面都能画出可见文字、且没有按钮互相重叠或跑出屏幕。
 * 1.19.4、1.20.1、1.21.1 没有客户端 gametest API，通过编译、打包和启动游戏验证。
 
 ## 疑难排查
 
 * **某个功能没反应** — 快捷键未绑定，或 **自动化** 总开关关闭（此时按快捷键会被拒绝并说明），
-  或同一按键上已有其它功能在运行（它们互斥）。
+  或同一按键上已有另一个**驱动按键**的功能在运行（长按、周期点击、周期长按互斥；快速连点不在此列）。
 * **绑了键却没反应** — 按住了不属于该绑定的 Ctrl/Shift/Alt/Win 会使其失效，这是有意的。
 * **打开背包后停了** — 攻击功能在 **Continue in GUI** 关闭时的预期行为，见上文。
 * **比设定值慢** — 原版丢弃了多余动作，见「原版限制」。

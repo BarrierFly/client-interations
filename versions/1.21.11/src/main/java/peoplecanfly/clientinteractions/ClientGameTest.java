@@ -57,6 +57,7 @@ public final class ClientGameTest implements FabricClientGameTest {
             testHold(context, Feature.ATTACK_HOLD);
             testFastClick(context);
             testFastClickMultipliesRealClicks(context);
+            testFastClickMultipliesChannelClicksOnOneTick(context);
             testPeriodicHold(context);
             testPeriodicClickSpread(context);
             testMutualExclusion(context);
@@ -603,8 +604,9 @@ public final class ClientGameTest implements FabricClientGameTest {
      *
      * <p>The physical press is detected from vanilla's own key state, which is exactly what the mod reads
      * at runtime, so this exercises the same path a player would. The witness is the count of clicks the
-     * mod injected: with the feature off it must be zero, and with it on it must be {@code count - 1} per
-     * press.</p>
+     * mod injected: with the feature off it must be zero, and with it on one press must produce
+     * {@code count - 1} extras - all of them on the press tick, since the multiplier works within the
+     * tick the click happens in.</p>
      */
     private void testFastClickMultipliesRealClicks(ClientGameTestContext context) {
         configure(context, Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 6));
@@ -628,17 +630,17 @@ public final class ClientGameTest implements FabricClientGameTest {
 
         pressAttackKey(context, true);
 
-        // The repeats are spread one per tick, so they need as many ticks as there are clicks. Waiting
-        // past that checks both the count and that the repeats stop: a leak would overshoot.
-        context.waitTicks(5);
+        // The extras land in the tick the press is processed in, so one tick is all they need. Waiting
+        // longer checks both the count and that nothing lingers: a leak would overshoot.
+        context.waitTick();
         int injected = compute(context, () -> mod().input().injectedClicks());
         LOGGER.info("fast click: injected {} extra clicks for one player press", injected);
         require(injected == 5,
-                "fast click: one press becomes 6 clicks spread over ticks, so 5 extra, saw " + injected);
+                "fast click: one press becomes 6 clicks on its own tick, so 5 extra, saw " + injected);
 
         context.waitTicks(5);
         require(compute(context, () -> mod().input().injectedClicks() == 5),
-                "fast click: the repeats stop after count clicks");
+                "fast click: no further clicks are owed after the press tick");
 
         stop(context, Feature.ATTACK_FAST_CLICK);
         context.waitTicks(2);
@@ -1007,6 +1009,47 @@ public final class ClientGameTest implements FabricClientGameTest {
         context.waitTicks(2);
         require(compute(context, () -> !client().options.keyAttack.isDown()),
                 "screen hold: the button is released once the feature stops");
+    }
+
+    /**
+     * Fast click multiplies the clicks its own channel asks for, on the same tick, and does not exclude it.
+     *
+     * <p>Periodic click asks for one click per tick. With fast click on, that same tick must carry the
+     * whole count - not one click now and the rest later - and both features must be running at once,
+     * which is the arrangement the exclusion rule used to forbid.</p>
+     */
+    private void testFastClickMultipliesChannelClicksOnOneTick(ClientGameTestContext context) {
+        compute(context, () -> {
+            mod().engine().stopAll();
+            mod().config().setSettings(Feature.ATTACK_PERIODIC_CLICK, new FeatureSettings(1, 1, 1));
+            mod().config().setSettings(Feature.ATTACK_FAST_CLICK, new FeatureSettings(20, 10, 4));
+            mod().syncEngine();
+            mod().engine().activate(Feature.ATTACK_PERIODIC_CLICK);
+            mod().engine().activate(Feature.ATTACK_FAST_CLICK);
+            return null;
+        });
+        context.waitTicks(2);
+
+        require(compute(context, () -> mod().engine().isActive(Feature.ATTACK_PERIODIC_CLICK)
+                        && mod().engine().isActive(Feature.ATTACK_FAST_CLICK)),
+                "fast click: runs alongside periodic click instead of excluding it");
+
+        compute(context, () -> {
+            mod().input().resetInjectedClicks();
+            return null;
+        });
+        context.waitTick();
+
+        int injected = compute(context, () -> mod().input().injectedClicks());
+        LOGGER.info("fast click: injected {} clicks for one tick of periodic click", injected);
+        require(injected == 4,
+                "fast click: one tick of periodic click performs the whole count, saw " + injected);
+
+        compute(context, () -> {
+            mod().engine().stopAll();
+            return null;
+        });
+        context.waitTicks(2);
     }
 
     /** The config screen must not ship with a global hotkey of its own. */

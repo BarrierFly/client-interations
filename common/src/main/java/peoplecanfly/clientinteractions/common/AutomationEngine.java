@@ -6,9 +6,10 @@ import java.util.Map;
 /**
  * Owns the runtime state of every feature.
  *
- * <p>Mutual exclusion is the rule that matters here: the four features of one {@link ActionChannel}
- * all drive the same mouse button, so activating one switches the others of that channel off. Features
- * of the other channel are untouched, because attack and use are independent.</p>
+ * <p>Mutual exclusion applies to the three features that each drive the button on their own: hold,
+ * periodic click and periodic hold. Activating one switches the others of that channel off, because
+ * they would fight over the same button. Fast click is the exception - it is a multiplier for whatever
+ * clicks that channel produces, so it runs alongside them.</p>
  *
  * <p>No Minecraft types; all game access goes through {@link Host}.</p>
  */
@@ -34,29 +35,6 @@ public final class AutomationEngine {
     private final Host host;
     private boolean enabled = true;
 
-    /**
-     * Extra clicks still owed to the player for fast click, per channel.
-     *
-     * <p>Fast click turns one of the player's clicks into {@code count} clicks. The player's own press is
-     * already handled by vanilla, so only the remaining {@code count - 1} have to be injected, and they
-     * are emitted one per tick - the same rate a player produces separate clicks at. One client tick has
-     * one crosshair target and one input pass, so several repeats in the same tick cannot act as several
-     * separate clicks: on the use channel a second call in the same tick would place a second block or
-     * restart the same use, and on the attack channel it would swing into an attack cooldown that has
-     * just been reset. Spreading the repeats keeps each one a click of its own.</p>
-     */
-    private final Map<ActionChannel, Integer> pendingPlayerClicks = new EnumMap<>(ActionChannel.class);
-
-    /**
-     * Channels where the player clicked on this tick.
-     *
-     * <p>The repeats start on the tick after the player's press, not on the same one: vanilla has just
-     * processed that press, and a repeat on the same tick would not be a separate click - it would land
-     * on the same crosshair target with the attack cooldown the press just reset, or restart a use that
-     * is already running. The next tick is the first one that can carry a click of its own.</p>
-     */
-    private final java.util.Set<ActionChannel> clickedThisTick =
-            java.util.EnumSet.noneOf(ActionChannel.class);
 
     public AutomationEngine(Host host) {
         this.host = host;
@@ -86,15 +64,12 @@ public final class AutomationEngine {
      * it used to be harmful: this runs during client initialisation, where touching the vanilla key
      * mappings is not possible yet.</p>
      *
-     * <p>Fast clicks still owed from before the switch was turned off are dropped: a click the player made
-     * while automation was allowed must not land after the switch turned it off.</p>
+     * <p>Only channels with a running feature are released. Releasing an idle channel is meaningless.</p>
      */
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
 
         if (!enabled) {
-            this.pendingPlayerClicks.clear();
-
             for (ActionChannel channel : ActionChannel.values()) {
                 if (this.activeFeature(channel) != null) {
                     this.host.release(channel);
@@ -114,8 +89,8 @@ public final class AutomationEngine {
     /**
      * Switches a feature on or off.
      *
-     * <p>Turning a feature on switches off every other feature of the same channel first, so at most
-     * one feature per button is ever running.</p>
+     * <p>Turning a feature on switches off the other features of the same channel, so at most one feature
+     * that drives the button on its own is running; fast click is a multiplier and is left alone.</p>
      *
      * @return the state of the feature after the call
      */
@@ -129,11 +104,19 @@ public final class AutomationEngine {
         return true;
     }
 
-    /** Activates a feature, switching off the other features of its channel. */
+    /**
+     * Activates a feature, switching off the other features of its channel.
+     *
+     * <p>Fast click is never switched off by this and never switches anything off: it multiplies the
+     * channel's clicks instead of driving the button, so it can run next to hold, periodic click or
+     * periodic hold.</p>
+     */
     public void activate(Feature feature) {
-        for (Feature other : Feature.forChannel(feature.channel())) {
-            if (other != feature) {
-                this.stop(other);
+        if (feature.shape() != Feature.Shape.FAST_CLICK) {
+            for (Feature other : Feature.forChannel(feature.channel())) {
+                if (other != feature && other.shape() != Feature.Shape.FAST_CLICK) {
+                    this.stop(other);
+                }
             }
         }
 
@@ -145,8 +128,12 @@ public final class AutomationEngine {
 
         if (scheduler.isActive()) {
             scheduler.deactivate();
-            this.pendingPlayerClicks.remove(feature.channel());
-            this.host.release(feature.channel());
+
+            // Only a feature that drives the button has a hold to release. Fast click never touched it,
+            // and releasing on its behalf would drop a hold another feature of the channel is running.
+            if (feature.shape() != Feature.Shape.FAST_CLICK) {
+                this.host.release(feature.channel());
+            }
         }
     }
 
@@ -178,93 +165,67 @@ public final class AutomationEngine {
     /**
      * Advances every active feature by exactly one client tick.
      *
-     * <p>Fast click is the odd one out: it has no timer of its own, but the extra clicks it owes the
-     * player are emitted here, one per tick, so each repeat is a separate click rather than a same-tick
-     * repeat. See {@link #recordPlayerClick(ActionChannel)}.</p>
+     * <p>Each feature that drives the button applies its own tick action. Fast click has no action of its
+     * own: the clicks a channel produces on a tick are multiplied by it here, so an active fast click makes
+     * that channel perform {@code count} clicks in every tick in which anything would have clicked once -
+     * the player's own press included. All of them are injected on the same tick.</p>
      */
     public void tick() {
-        for (Feature feature : Feature.values()) {
-            FeatureScheduler scheduler = this.schedulers.get(feature);
-
-            if (!scheduler.isActive()) {
-                continue;
-            }
-
-            TickAction action = scheduler.tick(feature, this.settings.get(feature));
-
+        for (ActionChannel channel : ActionChannel.values()) {
             if (!this.enabled) {
-                // Paused: the phase keeps running but the game is not touched.
-                this.host.release(feature.channel());
+                // Paused: the phases keep running but the game is not touched.
+                for (Feature feature : Feature.forChannel(channel)) {
+                    FeatureScheduler scheduler = this.schedulers.get(feature);
+
+                    if (scheduler.isActive()) {
+                        scheduler.tick(feature, this.settings.get(feature));
+                        this.host.release(channel);
+                    }
+                }
+
                 continue;
             }
 
-            if (feature.shape() == Feature.Shape.FAST_CLICK) {
-                // Fast click has no timer output of its own. It only emits the extras it owes from the
-                // player's own press, one per tick.
-                this.emitPendingPlayerClick(feature.channel());
-                continue;
+            int clicks = 0;
+            boolean hold = false;
+            boolean release = false;
+
+            for (Feature feature : Feature.forChannel(channel)) {
+                FeatureScheduler scheduler = this.schedulers.get(feature);
+
+                if (!scheduler.isActive()) {
+                    continue;
+                }
+
+                if (feature.shape() == Feature.Shape.FAST_CLICK) {
+                    // Fast click adds no action of its own; it multiplies what the channel produces. Its
+                    // clock still advances, so the feature behaves like every other one while idle.
+                    scheduler.tick(feature, this.settings.get(feature));
+                    continue;
+                }
+
+                TickAction action = scheduler.tick(feature, this.settings.get(feature));
+                clicks += action.clicks();
+                hold |= action.hold();
+                release |= action.releases();
             }
 
-            this.host.apply(feature.channel(), action.clicks(), action.hold(), action.releases());
-        }
+            if (clicks > 0) {
+                clicks *= this.playerClickCount(channel);
+            }
 
-        // The player's press has been processed by now; the next tick may start emitting the repeats.
-        this.clickedThisTick.clear();
+            if (clicks > 0 || hold || release) {
+                this.host.apply(channel, clicks, hold, release);
+            }
+        }
     }
 
     /**
-     * Records one of the player's own clicks and returns the extra clicks now owed for it.
-     *
-     * <p>The player's physical click is already handled by vanilla; this only schedules the repeats.
-     * Returns {@code 0} when fast click is off, so the caller can leave the click alone.</p>
-     */
-    public int recordPlayerClick(ActionChannel channel) {
-        int times = this.playerClickCount(channel);
-
-        if (times <= 1) {
-            return 0;
-        }
-
-        int extra = times - 1;
-        int queued = this.pendingPlayerClicks.getOrDefault(channel, 0);
-        this.pendingPlayerClicks.put(channel,
-                Math.min(FeatureSettings.MAX_COUNT, queued + extra));
-        this.clickedThisTick.add(channel);
-
-        return extra;
-    }
-
-    /** Emits at most one owed fast click, returning true when one was emitted. */
-    private boolean emitPendingPlayerClick(ActionChannel channel) {
-        int pending = this.pendingPlayerClicks.getOrDefault(channel, 0);
-
-        if (pending <= 0) {
-            return false;
-        }
-
-        if (this.clickedThisTick.contains(channel)) {
-            // The player's own press landed on this tick; vanilla has just processed it, so the repeats
-            // start on the next tick - the next tick that can carry a separate click of its own.
-            return false;
-        }
-
-        this.pendingPlayerClicks.put(channel, pending - 1);
-        this.host.apply(channel, 1, false, false);
-
-        return true;
-    }
-
-    /** How many extra fast clicks are still owed on a channel. */
-    public int pendingPlayerClicks(ActionChannel channel) {
-        return this.pendingPlayerClicks.getOrDefault(channel, 0);
-    }
-
-    /**
-     * How many clicks one of the player's own clicks should become on this channel.
+     * How many clicks one click of this channel becomes while fast click is running.
      *
      * <p>Returns {@code 1} unless fast click is active, in which case it is that feature's {@code count}.
-     * The caller reports the physical click and calls {@link #recordPlayerClick(ActionChannel)}, which is
-     * why fast click needs no timer of its own: it only ever acts when the player does.</p>
+     * The multiplier applies to every click the channel produces: the player's own press, and the clicks a
+     * running feature of the same channel asks for.</p>
      */
     public int playerClickCount(ActionChannel channel) {
         Feature fastClick = Feature.fastClickFor(channel);

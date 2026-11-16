@@ -21,13 +21,12 @@ public final class ModConfig {
      * Whether a running feature keeps acting on the world while a screen (chat, inventory, a container)
      * is open.
      *
-     * <p>Off by default, which keeps the vanilla rule for the attack channel: a screen discards attack
-     * input, so a hold pauses and resumes when the screen closes. The use channel has always kept
-     * working with a screen open and is not affected by this switch. Turning it on makes the mod drive
-     * the attack channel through the screen state as well, which means the crosshair target - a mob,
-     * the block being mined - keeps receiving the actions while the GUI is up.</p>
+     * <p>On by default: a running feature keeps acting on the world while a GUI is up, which is what the
+     * mod is installed for. Turning it off restores the vanilla rule for the attack channel - a screen
+     * discards attack input, so a hold pauses and resumes when the screen closes. The use channel keeps
+     * working with a screen open either way.</p>
      */
-    private boolean continueOnScreen = false;
+    private boolean continueOnScreen = true;
 
     /** The combination that opens the config screen. */
     private KeyCombo configKey = KeyCombo.unbound();

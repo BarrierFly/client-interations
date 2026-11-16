@@ -202,6 +202,25 @@ public final class GameInput {
         }
     }
 
+    /**
+     * Performs the extra clicks of the multiplier for one click the game already handled.
+     *
+     * <p>Used for the player's own press: vanilla processes that press itself, so only the rest of the
+     * clicks have to be injected - on this same tick, which is what makes one press really perform
+     * {@code count} clicks. Every click still goes through the same entry point a real click uses, so
+     * vanilla's own checks (attack cooldown, item use state, "already using an item") still apply.</p>
+     *
+     * @param channel the button to click
+     * @param clicks how many additional clicks to perform
+     */
+    public void injectExtraClicks(ActionChannel channel, int clicks) {
+        if (clicks <= 0) {
+            return;
+        }
+
+        this.click(channel, clicks);
+    }
+
     /** How many clicks the mod has injected, so a test can prove the multiplier really fired. */
     private int injected;
 
