@@ -522,7 +522,10 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             }
 
             int current = mapping.clickCount;
-            int previous = this.sampledClickCounts.getOrDefault(name, current);
+            // A key seen for the first time starts from zero, not from the count it already carries: a
+            // press that arrived in the same tick window as a fresh rebind is a real press and is
+            // counted like any other.
+            int previous = this.sampledClickCounts.getOrDefault(name, 0);
 
             if (current > previous) {
                 this.newPresses.put(name, current - previous);

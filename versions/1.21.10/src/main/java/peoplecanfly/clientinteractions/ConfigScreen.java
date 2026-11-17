@@ -227,8 +227,8 @@ public final class ConfigScreen extends Screen {
                         }));
 
         // Whether a running feature keeps acting on the world while a screen is open - chat, the
-        // inventory, a container - instead of the attack channel pausing the way vanilla does. Off by
-        // default, because acting into an open GUI is not what everyone wants.
+        // inventory, a container - instead of the attack channel pausing the way vanilla does. On by
+        // default, so a running feature does not stop when a GUI opens; off restores the vanilla rule.
         this.addRenderableWidget(CycleButton.onOffBuilder(this.mod.config().continueOnScreen())
                 .create(secondHalf, y, half, layout.widgetHeight, Component.literal("Continue in GUI"),
                         (b, v) -> {
@@ -420,7 +420,9 @@ public final class ConfigScreen extends Screen {
      *
      * <p>The field keeps what was typed; only the stored value is clamped to the engine's range. If the
      * clamp also changed another value of the same row - a hold cannot outlast its interval - that field
-     * is updated to the value actually stored, so the screen never shows a number that is not in effect.</p>
+     * is updated to the value actually stored, so the screen never shows a number that is not in effect.
+     * The value reaches the running engine immediately; the config file is written once, when the screen
+     * closes.</p>
      */
     private void commit(Feature feature, ValueField field, String text, EditBox box, Row row) {
         if (text.isEmpty()) {
@@ -454,7 +456,9 @@ public final class ConfigScreen extends Screen {
         }
 
         this.mod.config().setSettings(feature, updated);
-        this.mod.saveConfig();
+        // The numbers reach the running engine immediately; the file itself is written once, when the
+        // screen closes, instead of on every keystroke.
+        this.mod.syncEngine();
 
         for (ValueField other : ValueField.values()) {
             EditBox sibling = row.box(other);

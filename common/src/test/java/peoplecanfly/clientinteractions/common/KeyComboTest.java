@@ -125,13 +125,12 @@ class KeyComboTest {
         KeyCombo alone = combo("key.mouse.4");
 
         assertTrue(alone.isBound());
-        assertTrue(alone.isMouse());
         assertTrue(alone.matches(held("key.mouse.4")));
         assertEquals("Mouse 4", KeyNames.readable("key.mouse.4"));
 
         KeyCombo withCtrl = combo("key.keyboard.left.control", "key.mouse.left");
         // The primary is the last key, which is the mouse button here.
-        assertTrue(withCtrl.isMouse());
+        assertTrue(withCtrl.primaryKey().startsWith(KeyCombo.MOUSE_PREFIX));
         assertTrue(withCtrl.matches(held("key.keyboard.left.control", "key.mouse.left")));
     }
 

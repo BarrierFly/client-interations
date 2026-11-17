@@ -3,7 +3,7 @@
   "id": "clientinteractions",
   "version": "${version}",
   "name": "Client Interactions",
-  "description": "Configurable automation for the two mouse actions: hold, fast click, periodic click, periodic hold and periodic click bursts, for both attack and use.",
+  "description": "Configurable automation for the two mouse actions: hold, fast click, periodic click and periodic hold, for both attack and use.",
   "authors": [
     "PC"
   ],

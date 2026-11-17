@@ -26,14 +26,4 @@ public enum ActionChannel {
     public String vanillaKeyName() {
         return this.vanillaKeyName;
     }
-
-    public static ActionChannel byId(String id) {
-        for (ActionChannel channel : values()) {
-            if (channel.id.equals(id)) {
-                return channel;
-            }
-        }
-
-        return ATTACK;
-    }
 }

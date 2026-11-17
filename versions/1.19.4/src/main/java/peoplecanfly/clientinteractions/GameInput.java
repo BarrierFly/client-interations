@@ -66,11 +66,13 @@ public final class GameInput {
     }
 
     /**
-     * Whether the player is holding this button down themselves.
+     * Whether this button counts as held down right now, for the fast-click multiplier.
      *
-     * <p>Distinct from {@link #owns}: a hold the mod drives, or a button the mod re-asserts, is not the
-     * player holding anything. Read from the physical device, which is the state a real press sets and no
-     * mod write influences, so the multiplier cannot mistake its own hold for a held operation.</p>
+     * <p>The physical device is polled first, so a real press is always seen. The mapping fallback is
+     * deliberately left open: when the mod holds the button for a feature, that hold is itself an
+     * operation in effect and the multiplier should scale it, so a mod-driven hold counting here is
+     * correct rather than a leak. It is {@link HeldKeys}, with the mod-held keys excluded, that must not
+     * see the mod's own holds - there a hold would make its own combination look complete.</p>
      */
     public boolean isPlayerHolding(ActionChannel channel) {
         KeyMapping mapping = this.channelMapping(channel);

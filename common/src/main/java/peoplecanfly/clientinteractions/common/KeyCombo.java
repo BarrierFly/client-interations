@@ -110,22 +110,8 @@ public final class KeyCombo {
         return this.keys.isEmpty() ? "" : this.keys.get(this.keys.size() - 1);
     }
 
-    /** Kept for callers that only care about the key vanilla is registered on. */
-    public String keyName() {
-        return this.primaryKey();
-    }
-
     public boolean isBound() {
         return !this.keys.isEmpty();
-    }
-
-    /** True when the primary key is a mouse button. */
-    public boolean isMouse() {
-        return this.primaryKey().startsWith(MOUSE_PREFIX);
-    }
-
-    public boolean hasMultipleKeys() {
-        return this.keys.size() > 1;
     }
 
     /** How many keys have to be held. */

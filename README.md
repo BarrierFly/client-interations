@@ -22,7 +22,7 @@ timing values.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-Use `clientinteractions-<mc version>-1.3.1.jar`. Requires
+Use `clientinteractions-<mc version>-1.3.2.jar`. Requires
 [Fabric API](https://modrinth.com/mod/fabric-api); [Mod Menu](https://modrinth.com/mod/modmenu) is
 optional and only adds the config button.
 
@@ -143,7 +143,9 @@ interval), the partner's field is updated to what is actually stored.
 
 A hotkey is a **set of keys held together**. Any keyboard key or any mouse button (left, right, middle,
 4-8) may take part, in any mix: `Ctrl+R`, `Ctrl+Shift+Alt+R`, `A+C` and `Ctrl+Left Click` are all the
-same kind of binding. Modifiers are not special, they are simply keys.
+same kind of binding. Modifiers are not special, they are simply keys. On 26.3 the game only exposes
+five mouse buttons - left, right, middle and the two side buttons - so 6-8 can be recorded there but
+never fire.
 
 Open the key button and press the keys in any order: the capture starts empty, and **Done** stores
 exactly what was pressed, replacing the saved binding rather than extending it. Nothing is committed
@@ -246,7 +248,7 @@ classpath regardless of the declaration.
 
 ## Tests
 
-* 66 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
+* 69 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
   master switch, starting with the master switch off, combination matching (sets of keys, mouse buttons,
   priority between overlapping bindings, the config key winning a tie, an extra modifier blocking a
   binding), which keys vanilla loses, fast click being a paced multiplier, the periodic-click tick spread,
@@ -324,7 +326,7 @@ if something is missing.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-请使用 `clientinteractions-<游戏版本>-1.3.1.jar`。需要
+请使用 `clientinteractions-<游戏版本>-1.3.2.jar`。需要
 [Fabric API](https://modrinth.com/mod/fabric-api)；[Mod Menu](https://modrinth.com/mod/modmenu) 可选，
 只用于添加配置按钮。
 
@@ -430,7 +432,8 @@ if something is missing.
 
 快捷键是一组**同时按住**的键。任意键盘键或任意鼠标键（左键、右键、中键、4 到 8）
 都能参与，可以随意混搭：`Ctrl+R`、`Ctrl+Shift+Alt+R`、`A+C`、`Ctrl+鼠标左键`
-都是同一类绑定。修饰键并不特殊，它们只是普通的键。
+都是同一类绑定。修饰键并不特殊，它们只是普通的键。在 26.3 上游戏只向模组暴露五个
+鼠标键（左键、右键、中键和两个侧键），6 到 8 能被录入但永远不会触发。
 
 点开按键按钮，按任意顺序按下这些键：录入从空白开始，按下 **Done** 时会按已按下的键整体
 替换已保存的绑定，而不是在原绑定上追加。按下 Done 之前不会提交，所以 `A+C` 这类多键组合
@@ -524,7 +527,7 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 
 ## 测试
 
-* 66 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
+* 69 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
   组合键匹配（键集合、鼠标键、重叠绑定之间的优先级、配置键在长度相同时优先、多余的修饰键会
   屏蔽绑定）、哪些键会被接管、快速连点的同刻倍率语义与并行运行、周期点击的
   跨刻分布，以及 7000 刻的漂移检查。

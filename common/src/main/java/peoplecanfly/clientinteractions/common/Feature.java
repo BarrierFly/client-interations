@@ -96,16 +96,6 @@ public enum Feature {
         return "key.clientinteractions." + this.id;
     }
 
-    public static Feature byId(String id) {
-        for (Feature feature : values()) {
-            if (feature.id.equals(id)) {
-                return feature;
-            }
-        }
-
-        return ATTACK_HOLD;
-    }
-
     public static Feature[] forChannel(ActionChannel channel) {
         return java.util.Arrays.stream(values())
                 .filter(feature -> feature.channel == channel)

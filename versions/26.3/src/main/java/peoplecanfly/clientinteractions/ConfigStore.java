@@ -8,8 +8,10 @@ import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import peoplecanfly.clientinteractions.common.Feature;
@@ -170,14 +172,32 @@ public final class ConfigStore {
             root.add(feature.id(), node);
         }
 
+        // Written to a temporary file first and moved into place, so a crash mid-write can never
+        // leave a truncated file behind: the previous contents stay intact until the new ones are
+        // complete, and a partial write is impossible on a filesystem that supports atomic moves.
+        Path temp = this.path.resolveSibling(this.path.getFileName() + ".tmp");
+
         try {
             Files.createDirectories(this.path.getParent());
 
-            try (Writer writer = Files.newBufferedWriter(this.path, StandardCharsets.UTF_8)) {
+            try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
                 GSON.toJson(root, writer);
+            }
+
+            try {
+                Files.move(temp, this.path, StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temp, this.path, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException e) {
             LOGGER.error("Could not write {}", this.path, e);
+
+            try {
+                Files.deleteIfExists(temp);
+            } catch (IOException cleanup) {
+                LOGGER.warn("Could not remove the temporary file {}", temp, cleanup);
+            }
         }
     }
 

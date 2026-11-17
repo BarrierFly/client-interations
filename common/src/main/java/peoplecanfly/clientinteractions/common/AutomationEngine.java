@@ -30,7 +30,8 @@ public final class AutomationEngine {
         void release(ActionChannel channel);
 
         /**
-         * Whether the player's own button for this channel is physically down right now.
+         * Whether this button counts as held down right now - by the player, or by a feature the mod
+         * drives.
          *
          * <p>Fast click acts for as long as the operation is in effect, and holding a button down is the
          * operation being in effect: the vanilla client stops clicking after the first press and only
@@ -82,8 +83,6 @@ public final class AutomationEngine {
      * <p>Only channels with a running feature are released. Releasing an idle channel is meaningless, and
      * it used to be harmful: this runs during client initialisation, where touching the vanilla key
      * mappings is not possible yet.</p>
-     *
-     * <p>Only channels with a running feature are released. Releasing an idle channel is meaningless.</p>
      */
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
