@@ -20,7 +20,9 @@ import java.util.Set;
  *   <li><b>When it fires.</b> On the tick a binding <em>becomes</em> the winner, never again while it is
  *       held. A shorter binding that was shadowed fires when the longer one stops shadowing it.</li>
  *   <li><b>Which keys vanilla loses.</b> Exactly the keys of the winning combination, so {@code Shift+1}
- *       does not also switch the hotbar slot, while {@code 1} alone still does.</li>
+ *       does not also switch the hotbar slot, while {@code 1} alone still does. A key pressed while the
+ *       combination it belongs to is still being composed loses its action too, so the middle keys of
+ *       {@code Ctrl+Shift+R} neither sneak nor sprint on the way to the combination.</li>
  * </ul>
  *
  * <p>Keeping the three in one pure class (no Minecraft types) makes the rules testable without a game and
@@ -99,11 +101,114 @@ public final class HotkeyRouter {
     /**
      * Which keys vanilla must not act on, without changing any press state.
      *
-     * <p>Used at the start of a tick to drain the queued presses and clear the held flags of a complete
-     * combination, before vanilla's own key-binding pass sees them.</p>
+     * <p>Two kinds of keys are claimed:</p>
+     *
+     * <ul>
+     *   <li>The keys of the winning combinations.</li>
+     *   <li>Chain keys: keys from {@code chainCandidates} that join a combination still being composed.
+     *       A chain key keeps losing its action for as long as it sits on a chain that can still complete,
+     *       and is handed back the moment the chain breaks.</li>
+     * </ul>
+     *
+     * <p>Used at the start of a tick to drain the queued presses and clear the held flags, before
+     * vanilla's own key-binding pass sees them.</p>
+     *
+     * @param heldKeys every key held this tick, including modifiers held outside a binding and presses
+     *                 released again before this tick ran
+     * @param chainCandidates keys allowed to be claimed as chain keys: the presses made since the previous
+     *                        tick, plus the keys claimed on it. The key that <em>starts</em> a chain is
+     *                        never among them, which is what leaves the first key's action alone
+     * @param config the bindings to evaluate
      */
-    public static Set<String> claimedKeys(Set<String> heldKeys, ModConfig config) {
-        return winners(heldKeys, config).claimedKeys;
+    public static Set<String> claimedKeys(Set<String> heldKeys, Set<String> chainCandidates,
+                                          ModConfig config) {
+        Set<String> claimed = new LinkedHashSet<>(winners(heldKeys, config).claimedKeys);
+        claimed.addAll(chainKeys(heldKeys, chainCandidates, config));
+
+        return claimed;
+    }
+
+    /**
+     * The held keys that sit on a combination still being composed.
+     *
+     * <p>A key is on the chain of a combination when the combination is bound and incomplete, another key
+     * of it is already held, and every modifier held belongs to it. The modifier rule stops a chain that
+     * can never complete - a foreign Shift held alongside, say - from eating keys whose combination will
+     * never fire.</p>
+     */
+    private static Set<String> chainKeys(Set<String> heldKeys, Set<String> chainCandidates,
+                                         ModConfig config) {
+        Set<String> chain = new LinkedHashSet<>();
+
+        if (chainCandidates.isEmpty()) {
+            return chain;
+        }
+
+        List<KeyCombo> combos = new ArrayList<>();
+
+        for (Feature feature : Feature.values()) {
+            combos.add(config.key(feature));
+        }
+
+        combos.add(config.configKey());
+
+        Set<String> heldModifiers = new LinkedHashSet<>();
+
+        for (String held : heldKeys) {
+            if (KeyCombo.isModifierKey(held)) {
+                heldModifiers.add(held);
+            }
+        }
+
+        for (String key : chainCandidates) {
+            if (isChainKey(key, heldKeys, heldModifiers, combos)) {
+                chain.add(key);
+            }
+        }
+
+        return chain;
+    }
+
+    /** Whether {@code key} joins a bound, incomplete combination that another held key is part of. */
+    private static boolean isChainKey(String key, Set<String> heldKeys, Set<String> heldModifiers,
+                                      List<KeyCombo> combos) {
+        if (!heldKeys.contains(key)) {
+            return false;
+        }
+
+        for (KeyCombo combo : combos) {
+            if (!combo.isBound() || !combo.keys().contains(key) || heldKeys.containsAll(combo.keys())) {
+                continue;
+            }
+
+            boolean joined = false;
+
+            for (String comboKey : combo.keys()) {
+                if (!comboKey.equals(key) && heldKeys.contains(comboKey)) {
+                    joined = true;
+                    break;
+                }
+            }
+
+            if (!joined) {
+                continue;
+            }
+
+            boolean completable = true;
+
+            for (String heldModifier : heldModifiers) {
+                if (!combo.keys().contains(heldModifier)) {
+                    completable = false;
+                    break;
+                }
+            }
+
+            if (completable) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** The complete combinations that win this tick, and the keys they own. */

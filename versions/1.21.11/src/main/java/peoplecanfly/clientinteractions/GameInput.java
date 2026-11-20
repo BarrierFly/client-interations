@@ -55,6 +55,12 @@ public final class GameInput {
     /** Whether the mod, rather than the player, is currently holding a channel down. */
     private final boolean[] owned = new boolean[ActionChannel.values().length];
 
+    /**
+     * Channels whose button is down only because it completed a combination, not because the player is
+     * operating it. The mark is dropped when the button comes back up, so the next press counts again.
+     */
+    private final boolean[] enablingHold = new boolean[ActionChannel.values().length];
+
     public GameInput(Minecraft client, BooleanSupplier continueOnScreen) {
         this.client = client;
         this.continueOnScreen = continueOnScreen;
@@ -66,6 +72,20 @@ public final class GameInput {
     }
 
     /**
+     * Marks a channel whose button was just pressed to complete a combination, such as the left button
+     * of a {@code Shift+Left Click} binding.
+     *
+     * <p>The press itself is claimed and never reaches vanilla, but the hold that follows it would still
+     * look like an operation in effect to the fast-click multiplier, which would fire its count on the
+     * very tick the feature was switched on. The mark makes the multiplier ignore that hold until the
+     * button is released once, so switching a feature on by pressing its own button never performs the
+     * action; the next press does.</p>
+     */
+    public void markEnablingHold(ActionChannel channel) {
+        this.enablingHold[channel.ordinal()] = true;
+    }
+
+    /**
      * Whether this button counts as held down right now, for the fast-click multiplier.
      *
      * <p>The physical device is polled first, so a real press is always seen. The mapping fallback is
@@ -73,6 +93,10 @@ public final class GameInput {
      * operation in effect and the multiplier should scale it, so a mod-driven hold counting here is
      * correct rather than a leak. It is {@link HeldKeys}, with the mod-held keys excluded, that must not
      * see the mod's own holds - there a hold would make its own combination look complete.</p>
+     *
+     * <p>A hold that only completed a combination is the one exception: it is not the player operating
+     * the button, it is the player switching a feature on, so it does not count until the button is
+     * released once.</p>
      */
     public boolean isPlayerHolding(ActionChannel channel) {
         KeyMapping mapping = this.channelMapping(channel);
@@ -81,7 +105,20 @@ public final class GameInput {
             return false;
         }
 
-        return HeldKeys.isHeld(mapping.saveString(), this.client, java.util.Set.of());
+        boolean down = HeldKeys.isHeld(mapping.saveString(), this.client, java.util.Set.of());
+
+        if (this.enablingHold[channel.ordinal()]) {
+            // The mark is dropped once the button comes back up - the next press is an operation of its
+            // own - or when the mod drives the hold itself: that hold is an operation in effect and the
+            // multiplier is meant to scale it.
+            if (!down || this.owned[channel.ordinal()]) {
+                this.enablingHold[channel.ordinal()] = false;
+            } else {
+                return false;
+            }
+        }
+
+        return down;
     }
 
     /**

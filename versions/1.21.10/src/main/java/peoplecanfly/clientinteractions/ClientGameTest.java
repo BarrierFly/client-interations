@@ -596,7 +596,8 @@ public final class ClientGameTest implements FabricClientGameTest {
      */
     private static boolean hotkeyFires(String keyName) {
         return peoplecanfly.clientinteractions.common.HotkeyRouter
-                .claimedKeys(java.util.Set.of(keyName), ClientInteractionsClient.get().config())
+                .claimedKeys(java.util.Set.of(keyName), java.util.Set.of(),
+                        ClientInteractionsClient.get().config())
                 .contains(keyName);
     }
     /**

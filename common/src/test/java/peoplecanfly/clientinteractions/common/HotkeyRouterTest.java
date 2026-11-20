@@ -137,10 +137,90 @@ class HotkeyRouterTest {
         ModConfig config = config();
         config.setKey(Feature.ATTACK_HOLD, combo("key.keyboard.left.shift", "key.keyboard.1"));
 
-        assertTrue(HotkeyRouter.claimedKeys(held("key.keyboard.1"), config).isEmpty(),
+        assertTrue(HotkeyRouter.claimedKeys(held("key.keyboard.1"),
+                held("key.keyboard.1"), config).isEmpty(),
                 "pressing 1 alone must still select the hotbar slot");
         assertEquals(Set.of("key.keyboard.left.shift", "key.keyboard.1"),
-                HotkeyRouter.claimedKeys(held("key.keyboard.left.shift", "key.keyboard.1"), config));
+                HotkeyRouter.claimedKeys(held("key.keyboard.left.shift", "key.keyboard.1"),
+                        held("key.keyboard.1"), config));
+    }
+
+    @Test
+    @DisplayName("a key joining a combination being composed is claimed, but the first key is not")
+    void chainKeyIsClaimed() {
+        ModConfig config = config();
+        config.setKey(Feature.ATTACK_HOLD,
+                combo("key.keyboard.left.control", "key.keyboard.left.shift", "key.keyboard.r"));
+
+        assertTrue(HotkeyRouter.claimedKeys(held("key.keyboard.left.control"),
+                        held("key.keyboard.left.control"), config).isEmpty(),
+                "the key that starts a chain keeps its ordinary action");
+
+        assertEquals(Set.of("key.keyboard.left.shift"),
+                HotkeyRouter.claimedKeys(
+                        held("key.keyboard.left.control", "key.keyboard.left.shift"),
+                        held("key.keyboard.left.shift"), config),
+                "the second key is claimed while the combination is still being composed");
+    }
+
+    @Test
+    @DisplayName("a chain key stays claimed while its chain holds and is handed back when it breaks")
+    void chainKeyFollowsItsChain() {
+        ModConfig config = config();
+        config.setKey(Feature.ATTACK_HOLD,
+                combo("key.keyboard.left.control", "key.keyboard.left.shift", "key.keyboard.r"));
+
+        // Second tick of the hold: Shift is no longer a fresh press, but it is still suppressed and the
+        // chain is still viable, so the block continues.
+        assertEquals(Set.of("key.keyboard.left.shift"),
+                HotkeyRouter.claimedKeys(
+                        held("key.keyboard.left.control", "key.keyboard.left.shift"),
+                        held("key.keyboard.left.shift"), config),
+                "a suppressed chain key stays claimed while the chain can still complete");
+
+        // Ctrl released: no other key of the combination is held, so Shift acts again.
+        assertTrue(HotkeyRouter.claimedKeys(held("key.keyboard.left.shift"),
+                        held("key.keyboard.left.shift"), config).isEmpty(),
+                "the chain key is handed back once the chain breaks");
+    }
+
+    @Test
+    @DisplayName("a chain that can no longer complete does not eat keys")
+    void foreignModifierStopsChain() {
+        ModConfig config = config();
+        config.setKey(Feature.ATTACK_HOLD, combo("key.keyboard.left.control", "key.keyboard.r"));
+
+        assertTrue(HotkeyRouter.claimedKeys(
+                        held("key.keyboard.left.control", "key.keyboard.left.shift", "key.keyboard.r"),
+                        held("key.keyboard.r"), config).isEmpty(),
+                "the extra Shift blocks the combination from ever completing, so R keeps its action");
+    }
+
+    @Test
+    @DisplayName("a completing key is claimed even though it also sits on a longer chain")
+    void completingKeyWinsOverChain() {
+        ModConfig config = config();
+        config.setKey(Feature.ATTACK_HOLD, combo("key.keyboard.left.control", "key.keyboard.x"));
+        config.setKey(Feature.USE_HOLD,
+                combo("key.keyboard.left.control", "key.keyboard.x", "key.keyboard.z"));
+
+        assertEquals(Set.of("key.keyboard.left.control", "key.keyboard.x"),
+                HotkeyRouter.claimedKeys(held("key.keyboard.left.control", "key.keyboard.x"),
+                        held("key.keyboard.x"), config),
+                "the short binding fires and both of its keys are claimed");
+    }
+
+    @Test
+    @DisplayName("the attack button is claimed while it composes a combination")
+    void attackButtonChain() {
+        ModConfig config = config();
+        config.setKey(Feature.USE_HOLD,
+                combo("key.keyboard.left.shift", "key.mouse.left", "key.keyboard.x"));
+
+        assertEquals(Set.of("key.mouse.left"),
+                HotkeyRouter.claimedKeys(held("key.keyboard.left.shift", "key.mouse.left"),
+                        held("key.mouse.left"), config),
+                "the click is claimed instead of attacking while the combination is incomplete");
     }
 
     @Test
@@ -182,8 +262,8 @@ class HotkeyRouterTest {
 
         assertEquals(List.of(Feature.USE_PERIODIC_CLICK), result.toggles());
         assertTrue(result.claimedKeys().contains("key.mouse.left"));
-        assertTrue(HotkeyRouter.claimedKeys(held("key.mouse.left"), config).isEmpty(),
-                "a plain click is not claimed");
+        assertTrue(HotkeyRouter.claimedKeys(held("key.mouse.left"), held("key.mouse.left"), config)
+                .isEmpty(), "a plain click is not claimed");
     }
 
     @Test

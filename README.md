@@ -22,7 +22,7 @@ timing values.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-Use `clientinteractions-<mc version>-1.3.2.jar`. Requires
+Use `clientinteractions-<mc version>-1.4.0.jar`. Requires
 [Fabric API](https://modrinth.com/mod/fabric-api); [Mod Menu](https://modrinth.com/mod/modmenu) is
 optional and only adds the config button.
 
@@ -44,7 +44,10 @@ Grouped per button: **Attack** and **Use**. Times are game ticks (1 tick = 50 ms
 
 Fast click never acts on its own. While the operation is in effect, **every tick performs `Clicks`
 clicks**, all within that tick. "In effect" means the button is being operated: you are holding it down,
-or a feature of the same button is driving it.
+or a feature of the same button is driving it. The one exception is a hold that only completed a
+combination, such as pressing `Shift+Left Click` to switch the feature on: that hold is not operating
+the button, it is switching the feature on, so it performs nothing until the button is released - the
+next press counts.
 
 * **Holding the button.** The press tick performs `Clicks` (vanilla handles your press, the mod adds
   `Clicks - 1`), and every further tick the button stays down performs `Clicks` more. Vanilla stops
@@ -181,6 +184,14 @@ down, and the press completes the combination from its queued click, which is th
 acting. What cannot be undone is order: pressing `1` first and `Shift` a tick later means the `1` acted
 on its own - the mod cannot know `Shift` was coming.
 
+Composing a combination is protected from the second key on. The key that starts a chain keeps its
+ordinary job - when it was pressed, nothing indicated that a combination was coming, and its action has
+already happened by the time the second key lands. Every key pressed after that, while the combination
+is still incomplete, loses its ordinary job until the combination completes or the chain breaks: with
+`Ctrl+Shift+R` bound, holding `Ctrl` and pressing `Shift` does not sneak, and a further `R` completes
+the combination. A chain that can no longer complete - a foreign Shift held alongside `Ctrl+R`, say -
+stops eating keys, because its combination will never fire.
+
 The same applies to the mouse buttons. With `Shift+Left Click` bound, pressing that combination switches
 the feature and does **not** also punch; a plain left click still attacks.
 
@@ -248,10 +259,11 @@ classpath regardless of the declaration.
 
 ## Tests
 
-* 69 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
+* 74 unit tests: every behaviour, clamping, mutual exclusion per button, channel independence, the
   master switch, starting with the master switch off, combination matching (sets of keys, mouse buttons,
   priority between overlapping bindings, the config key winning a tie, an extra modifier blocking a
-  binding), which keys vanilla loses, fast click being a paced multiplier, the periodic-click tick spread,
+  binding), which keys vanilla loses - complete combinations, and from the second key on the keys still
+  composing one - fast click being a paced multiplier, the periodic-click tick spread,
   and a 7000 tick drift check.
 * 1.21.10, 1.21.11 and 26.3 have in-game tests that boot a real client, create a world, and assert
   holds, clicks, one-tick-per-tick timing, mutual exclusion, the master switch, screen behaviour,
@@ -326,7 +338,7 @@ if something is missing.
 | 1.21.11   | >= 0.17.3     | 21   |
 | 26.3      | >= 0.19.3     | 25   |
 
-请使用 `clientinteractions-<游戏版本>-1.3.2.jar`。需要
+请使用 `clientinteractions-<游戏版本>-1.4.0.jar`。需要
 [Fabric API](https://modrinth.com/mod/fabric-api)；[Mod Menu](https://modrinth.com/mod/modmenu) 可选，
 只用于添加配置按钮。
 
@@ -346,7 +358,9 @@ if something is missing.
 ### 快速连点是倍率，不是定时器
 
 快速连点从不自行动作。当操作处于生效状态时，**每一刻都执行 `次数` 次**，全部落在该刻内。
-「生效」指按键正在被操作：你按着它，或同一按键的功能正在驱动它。
+「生效」指按键正在被操作：你按着它，或同一按键的功能正在驱动它。唯一的例外是只为完成组合的
+按住：比如按 `Shift+左键` 开启功能时，那一次按住不是在操作按键，而是在开启功能，所以在按键
+松开之前它不会执行任何动作，下一次按下才开始计数。
 
 * **按住按键时**：按下那一刻意执行 `次数` 次（你的按下由原版处理，模组补上 `次数 - 1` 次），
   此后按键仍按住的每一刻都再执行 `次数` 次。原版在第一次按下后就不再点击、只维持连续动作，
@@ -465,6 +479,12 @@ if something is missing.
 的点击完成组合，队列点击被排空而不会执行原版动作。无法挽回的是顺序：先按 `1`、一刻之后才按
 `Shift`，那么 `1` 已经单独生效——模组不可能知道 `Shift` 随后就会按下。
 
+组合的组建过程从第二个键起就受到保护。发起组合的第一个键保留本职——它按下时还没有任何迹象表明
+组合即将到来，等第二个键落下时它的动作早已发生。此后在组合尚未完整时按下的每个键都会失去本职，
+直到组合完成或链路断开：绑定 `Ctrl+Shift+R` 时，按住 `Ctrl` 再按 `Shift` 不会进入潜行，再按
+`R` 才完成组合。已经无法完成的链——比如按住 `Ctrl+R` 时额外按着 Shift——不再吞键，因为它的
+组合永远无法触发。
+
 鼠标键同理：绑定 `Shift+左键` 时，按下这个组合会切换功能，**不会**顺带打出一拳；单独按左键仍然
 正常攻击。
 
@@ -527,9 +547,10 @@ Gradle 用 JDK 25 运行；游戏本身用其 Minecraft 版本所需的 Java 启
 
 ## 测试
 
-* 69 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
+* 74 个单元测试：每种行为、数值钳制、同按键互斥、双通道独立、总开关、以关闭总开关启动、
   组合键匹配（键集合、鼠标键、重叠绑定之间的优先级、配置键在长度相同时优先、多余的修饰键会
-  屏蔽绑定）、哪些键会被接管、快速连点的同刻倍率语义与并行运行、周期点击的
+  屏蔽绑定）、哪些键会被接管（完整组合，以及从第二个键起正在组建的组合键）、
+  快速连点的同刻倍率语义与并行运行、周期点击的
   跨刻分布，以及 7000 刻的漂移检查。
 * 1.21.10、1.21.11、26.3 有游戏内测试：启动真实客户端、创建世界，断言长按、点击、每刻一步的
   计时、互斥、总开关、界面行为、组合键匹配、多键组合被完整捕获、按下后不会自我抵消、

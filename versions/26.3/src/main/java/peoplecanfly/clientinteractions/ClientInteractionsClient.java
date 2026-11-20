@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -268,7 +269,10 @@ public final class ClientInteractionsClient implements ClientModInitializer {
      *
      * <p>Only keys of a <em>complete</em> combination are claimed. Pressing {@code 1} alone when only
      * {@code Shift+1} is bound must still select the hotbar slot, and clicking alone when only
-     * {@code Shift+Left Click} is bound must still attack.</p>
+     * {@code Shift+Left Click} is bound must still attack. A key pressed while the combination it belongs
+     * to is still being composed is claimed too, from the second key on: the key that starts a chain keeps
+     * its action, because nothing indicated a combination when it was pressed, but every key joining it
+     * loses its action until the combination completes or the chain breaks.</p>
      */
     private void claimBoundKeys(Minecraft client) {
         this.sampledHeldKeys = null;
@@ -308,7 +312,13 @@ public final class ClientInteractionsClient implements ClientModInitializer {
         held.addAll(this.newPresses.keySet());
         this.sampledHeldKeys = held;
 
-        Set<String> claimed = HotkeyRouter.claimedKeys(held, this.config);
+        // Chain candidates: the presses made since the previous tick - a key joining keys already held is
+        // what puts it on a combination's chain - plus the keys claimed on it, which stay claimed while
+        // they sit on a chain that can still complete.
+        Set<String> chainCandidates = new HashSet<>(this.newPresses.keySet());
+        chainCandidates.addAll(this.claimedLastTick);
+
+        Set<String> claimed = HotkeyRouter.claimedKeys(held, chainCandidates, this.config);
 
         // The player's own presses, before the drain: a press the combination claims belongs to the
         // hotkey and must not also multiply, every other press goes to fast click.
@@ -468,8 +478,35 @@ public final class ClientInteractionsClient implements ClientModInitializer {
             this.toggleFeature(feature);
         }
 
+        this.markEnablingHolds(client, result);
+
         if (result.openConfig()) {
             client.gui.setScreen(new ConfigScreen(client.gui.screen(), this));
+        }
+    }
+
+    /**
+     * Marks the channels whose button was just pressed to complete a combination.
+     *
+     * <p>The completing press itself is claimed - drained, and its flag cleared - so vanilla never acts
+     * on it. The hold that follows would still look like an operation in effect to the fast-click
+     * multiplier, which would fire its count on the very tick the feature was switched on. Marking the
+     * channel makes the multiplier ignore that hold until the button is released once, so switching a
+     * feature on by pressing its own button never performs the action; the next press does.</p>
+     */
+    private void markEnablingHolds(Minecraft client, HotkeyRouter.Result result) {
+        if (result.toggles().isEmpty() || result.claimedKeys().isEmpty()) {
+            return;
+        }
+
+        for (Feature feature : result.toggles()) {
+            KeyMapping button = feature.channel() == ActionChannel.ATTACK
+                    ? client.options.keyAttack
+                    : client.options.keyUse;
+
+            if (button != null && result.claimedKeys().contains(button.saveString())) {
+                this.input.markEnablingHold(feature.channel());
+            }
         }
     }
 
